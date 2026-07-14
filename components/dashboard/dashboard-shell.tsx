@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight,
   BarChart3,
   Bell,
   ChevronRight,
@@ -11,7 +10,9 @@ import {
   Lightbulb,
   Menu,
   Medal,
+  Search,
   Scissors,
+  SlidersHorizontal,
   Sparkles,
   TrendingUp,
   Users,
@@ -24,36 +25,40 @@ import {
   AreaChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
+  YAxis,
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
+import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
 
 const history = [
   { time: "09:00", value: 1000000 },
-  { time: "10:00", value: 1008200 },
-  { time: "11:00", value: 1004100 },
-  { time: "12:00", value: 1021900 },
-  { time: "13:00", value: 1017800 },
-  { time: "14:00", value: 1032400 },
-  { time: "15:00", value: 1041900 },
-  { time: "16:00", value: 1037600 },
-  { time: "17:00", value: 1052600 },
-  { time: "18:00", value: 1061400 },
-  { time: "19:00", value: 1084260 },
+  { time: "10:00", value: 1000000 },
+  { time: "11:00", value: 1000000 },
+  { time: "12:00", value: 1000000 },
+  { time: "13:00", value: 1000000 },
+  { time: "14:00", value: 1000000 },
+  { time: "15:00", value: 1000000 },
+  { time: "16:00", value: 1000000 },
+  { time: "17:00", value: 1000000 },
+  { time: "18:00", value: 1000000 },
+  { time: "19:00", value: 1000000 },
 ];
 
 const allocation = [
-  { name: "BTC", value: 46, color: "#c4ff0d" },
-  { name: "ETH", value: 24, color: "#9da68e" },
-  { name: "SOL", value: 16, color: "#687660" },
-  { name: "Cash", value: 14, color: "#334336" },
+  { name: "BTC", value: 0, color: "#c4ff0d" },
+  { name: "ETH", value: 0, color: "#9da68e" },
+  { name: "SOL", value: 0, color: "#687660" },
+  { name: "Cash", value: 100, color: "#334336" },
 ];
 
 const holdingStats = [
@@ -63,11 +68,7 @@ const holdingStats = [
   { symbol: "LINK", name: "Chainlink", percent: 38, color: "#5e8cff" },
 ];
 
-const holdings = [
-  { symbol: "BTC", quantity: "6.2555 BTC", value: "$412,840", change: "+12.4%", color: "#f7931a" },
-  { symbol: "ETH", quantity: "38.20 ETH", value: "$248,190", change: "+7.8%", color: "#9ba4ff" },
-  { symbol: "SOL", quantity: "218.40 SOL", value: "$169,930", change: "+18.2%", color: "#a8ffcf" },
-];
+const holdings: Array<{ symbol: string; quantity: string; value: string; change: string; color: string }> = [];
 
 const ticker = [
   ["BTC", "$65,942.20", "+2.41%"],
@@ -78,6 +79,23 @@ const ticker = [
   ["DOGE", "$0.14", "+0.88%"],
   ["AAVE", "$112.60", "-1.04%"],
 ];
+
+type LiveMarketAsset = MarketAsset & {
+  price: number | null;
+  change24h: number | null;
+};
+
+function formatUsd(value: number | null) {
+  if (value === null) return "Loading…";
+  return value < 1
+    ? "$" + value.toFixed(4)
+    : "$" + value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function formatChange(value: number | null) {
+  if (value === null) return "—";
+  return (value >= 0 ? "+" : "") + value.toFixed(2) + "%";
+}
 
 function formatCountdown(totalSeconds: number) {
   const days = Math.floor(totalSeconds / 86400);
@@ -99,6 +117,227 @@ function AssetMark({ symbol, color }: { symbol: string; color: string }) {
     >
       {symbol === "BTC" ? "₿" : symbol === "ETH" ? "◆" : symbol === "SOL" ? "≋" : symbol.slice(0, 1)}
     </span>
+  );
+}
+
+type ChartMode = "line" | "area" | "candles";
+
+type CandlePoint = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+function SampledCandleChart({ candles }: { candles: CandlePoint[] }) {
+  if (candles.length === 0) {
+    return <div className="flex h-full items-center justify-center text-xs text-white/35">Loading price history…</div>;
+  }
+
+  const width = 1000;
+  const height = 320;
+  const padding = { top: 38, right: 18, bottom: 34, left: 82 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const values = candles.flatMap((candle) => [candle.high, candle.low]);
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const rawRange = rawMax - rawMin;
+  const chartPadding = rawRange === 0 ? Math.max(Math.abs(rawMax) * 0.01, 0.01) : rawRange * 0.08;
+  const min = rawMin - chartPadding;
+  const max = rawMax + chartPadding;
+  const range = max - min || 1;
+  const step = plotWidth / Math.max(candles.length - 1, 1);
+  const y = (value: number) => padding.top + plotHeight - ((value - min) / range) * plotHeight;
+  const x = (index: number) => padding.left + index * step;
+  const yTicks = Array.from({ length: 5 }, (_, index) => max - (range * index) / 4);
+  const xTickIndexes = Array.from(new Set([0, Math.floor((candles.length - 1) / 2), candles.length - 1]));
+  const formatTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  return (
+    <svg viewBox={"0 0 " + width + " " + height} className="h-full w-full" preserveAspectRatio="none" role="img" aria-label="Candlestick price chart with price and time axes">
+      <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} fill="rgba(3, 12, 8, 0.56)" />
+      {yTicks.map((tick, index) => (
+        <g key={"y-" + index}>
+          <line x1={padding.left} x2={width - padding.right} y1={y(tick)} y2={y(tick)} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 7" />
+          <text x={padding.left - 12} y={y(tick) + 4} textAnchor="end" fill="rgba(255,255,255,0.48)" fontSize="12">{formatUsd(tick)}</text>
+        </g>
+      ))}
+      {xTickIndexes.map((index) => (
+        <g key={"x-" + index}>
+          <line x1={x(index)} x2={x(index)} y1={padding.top} y2={padding.top + plotHeight} stroke="rgba(255,255,255,0.07)" strokeDasharray="3 7" />
+          <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === candles.length - 1 ? "end" : "middle"} fill="rgba(255,255,255,0.42)" fontSize="12">{formatTime(candles[index].time)}</text>
+        </g>
+      ))}
+      <line x1={padding.left} x2={padding.left} y1={padding.top} y2={padding.top + plotHeight} stroke="rgba(255,255,255,0.24)" />
+      <line x1={padding.left} x2={width - padding.right} y1={padding.top + plotHeight} y2={padding.top + plotHeight} stroke="rgba(255,255,255,0.24)" />
+      {candles.map((candle, index) => {
+        const { open, close, high, low } = candle;
+        const candleX = x(index);
+        const candleWidth = Math.max(6, Math.min(18, step * 0.62));
+        const bullish = close >= open;
+
+        return (
+          <g key={candle.time}>
+            <title>{formatTime(candle.time)} · O {formatUsd(open)} · H {formatUsd(high)} · L {formatUsd(low)} · C {formatUsd(close)}</title>
+            <line x1={candleX} x2={candleX} y1={y(high)} y2={y(low)} stroke={bullish ? "#c4ff0d" : "#ff7f7f"} strokeWidth="2" />
+            <rect x={candleX - candleWidth / 2} y={Math.min(y(open), y(close))} width={candleWidth} height={Math.max(3, Math.abs(y(open) - y(close)))} rx="1.5" fill={bullish ? "#c4ff0d" : "#ff7f7f"} fillOpacity="0.9" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function TradePanel() {
+  const [query, setQuery] = useState("");
+  const [selectedSymbol, setSelectedSymbol] = useState("BTC");
+  const [orderType, setOrderType] = useState<"BUY" | "SELL">("BUY");
+  const [quantity, setQuantity] = useState("1");
+  const [orderMessage, setOrderMessage] = useState("");
+  const [range, setRange] = useState<"1h" | "6h" | "24h">("24h");
+  const [chartMode, setChartMode] = useState<ChartMode>("area");
+  const [marketAssets, setMarketAssets] = useState<LiveMarketAsset[]>(() =>
+    MARKET_ASSETS.map((asset) => ({ ...asset, price: null, change24h: null })),
+  );
+  const [priceHistory, setPriceHistory] = useState<Array<{ time: number; value: number }>>([]);
+  const [candleHistory, setCandleHistory] = useState<CandlePoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [marketError, setMarketError] = useState("");
+  const selectedAsset = marketAssets.find((asset) => asset.symbol === selectedSymbol) ?? marketAssets[0];
+  const filteredAssets = marketAssets.filter((asset) =>
+    (asset.symbol + asset.name).toLowerCase().includes(query.toLowerCase()),
+  );
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    fetch("/api/market")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Market data unavailable");
+        return response.json() as Promise<{ assets: LiveMarketAsset[] }>;
+      })
+      .then((data) => {
+        if (isCurrent) setMarketAssets(data.assets);
+      })
+      .catch(() => {
+        if (isCurrent) setMarketError("Market data is temporarily unavailable.");
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    fetch("/api/market/" + selectedAsset.symbol + "/history?range=" + range)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Price history unavailable");
+        return response.json() as Promise<{ prices: Array<[number, number]>; candles?: Array<[number, number, number, number, number]> }>;
+      })
+      .then((data) => {
+        if (data.prices.length === 0) throw new Error("Price history unavailable");
+        if (isCurrent) {
+          setPriceHistory(data.prices.map(([time, value]) => ({ time, value })));
+          setCandleHistory((data.candles ?? []).map(([time, open, high, low, close]) => ({ time, open, high, low, close })));
+        }
+      })
+      .catch(() => {
+        if (isCurrent) setMarketError("Price history is temporarily unavailable.");
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedAsset.symbol, range]);
+
+  function submitOrder() {
+    const action = orderType === "BUY" ? "Buy" : "Sell";
+    setOrderMessage(action + " order for " + quantity + " " + selectedAsset.symbol + " is ready for account confirmation.");
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <section className="rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-white/75">Live Prices</p>
+            <p className="mt-1 text-[10px] text-white/30">Select an asset to trade</p>
+          </div>
+          <span className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]"><span className={isLoading ? "size-1.5 animate-pulse rounded-full bg-[#c4ff0d]" : "size-1.5 rounded-full bg-[#c4ff0d]"} /> {isLoading ? "Updating" : "Live"}</span>
+        </div>
+        <div className="mt-4 flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 focus-within:border-[#c4ff0d]/40">
+          <Search className="size-3.5 text-white/30" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter assets" className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/25" aria-label="Filter assets" />
+          <SlidersHorizontal className="size-3.5 text-white/25" />
+        </div>
+        <div className="mt-4 space-y-1">
+          {filteredAssets.map((asset) => (
+            <button key={asset.symbol} type="button" onClick={() => { setSelectedSymbol(asset.symbol); setOrderMessage(""); }} className={selectedSymbol === asset.symbol ? "flex w-full items-center gap-2.5 rounded-xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.08] px-2.5 py-3 text-left" : "flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-3 text-left transition-colors hover:border-white/10 hover:bg-white/[0.04]"}>
+              <AssetMark symbol={asset.symbol} color={asset.color} />
+              <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-white/80">{asset.symbol}</span><span className="block truncate text-[10px] text-white/30">{asset.name}</span></span>
+              <span className="text-right"><span className="block text-[11px] text-white/70">{formatUsd(asset.price)}</span><span className={asset.change24h === null || asset.change24h >= 0 ? "block text-[10px] text-[#c4ff0d]" : "block text-[10px] text-[#ff7f7f]"}>{formatChange(asset.change24h)}</span></span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="min-w-0 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+          <div className="flex items-center gap-3"><AssetMark symbol={selectedAsset.symbol} color={selectedAsset.color} /><div><p className="text-lg font-semibold tracking-[-0.04em]">{selectedAsset.name}</p><p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/30">{selectedAsset.symbol} / USD</p></div></div>
+          <div className="text-left sm:text-right"><p className="text-xl font-semibold tracking-[-0.05em]">{formatUsd(selectedAsset.price)}</p><p className={selectedAsset.change24h === null || selectedAsset.change24h >= 0 ? "mt-1 text-xs text-[#c4ff0d]" : "mt-1 text-xs text-[#ff7f7f]"}>{formatChange(selectedAsset.change24h)} today</p></div>
+        </div>
+        <div className="relative mt-7 h-[300px] min-w-0 rounded-xl border border-white/[0.07] bg-black/10 p-3">
+          <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between">
+            <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-[#07110c]/80 p-1 backdrop-blur-sm">
+              {(["1h", "6h", "24h"] as const).map((option) => (
+                <button key={option} type="button" onClick={() => setRange(option)} className={range === option ? "rounded-md bg-white/[0.1] px-2.5 py-1.5 text-[10px] font-semibold text-[#c4ff0d]" : "rounded-md px-2.5 py-1.5 text-[10px] text-white/35 hover:text-white"}>{option}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-[#07110c]/80 p-1 backdrop-blur-sm">
+              {(["line", "area", "candles"] as const).map((option) => (
+                <button key={option} type="button" onClick={() => setChartMode(option)} className={chartMode === option ? "rounded-md bg-white/[0.1] px-2.5 py-1.5 text-[10px] font-semibold text-[#c4ff0d]" : "rounded-md px-2.5 py-1.5 text-[10px] capitalize text-white/35 hover:text-white"}>{option}</button>
+              ))}
+            </div>
+          </div>
+          {chartMode === "candles" ? <SampledCandleChart candles={candleHistory} /> : <ResponsiveContainer width="100%" height="100%">
+            {chartMode === "line" ? <LineChart data={priceHistory} margin={{ top: 8, right: 6, left: 4, bottom: 20 }}>
+              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" strokeDasharray="3 7" />
+              <YAxis domain={["dataMin", "dataMax"]} tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => formatUsd(Number(value))} width={56} />
+              <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => new Date(Number(value)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} minTickGap={24} />
+              <Tooltip contentStyle={{ background: "#0b1d13", border: "1px solid rgba(196,255,13,0.22)", borderRadius: 12, color: "#fff", fontSize: 11 }} formatter={(value) => [Number(value).toLocaleString(), selectedAsset.symbol]} />
+              <Line type="monotone" dataKey="value" stroke={selectedAsset.color} strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: selectedAsset.color, stroke: "#07110c", strokeWidth: 2 }} />
+            </LineChart> : <AreaChart data={priceHistory} margin={{ top: 8, right: 6, left: 4, bottom: 20 }}>
+              <defs><linearGradient id="tradeGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={selectedAsset.color} stopOpacity={0.28} /><stop offset="100%" stopColor={selectedAsset.color} stopOpacity={0} /></linearGradient></defs>
+              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" strokeDasharray="3 7" />
+              <YAxis domain={["dataMin", "dataMax"]} tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => formatUsd(Number(value))} width={56} />
+              <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => new Date(Number(value)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} minTickGap={24} />
+              <Tooltip contentStyle={{ background: "#0b1d13", border: "1px solid rgba(196,255,13,0.22)", borderRadius: 12, color: "#fff", fontSize: 11 }} formatter={(value) => [Number(value).toLocaleString(), selectedAsset.symbol]} />
+              <Area type="monotone" dataKey="value" stroke={selectedAsset.color} strokeWidth={2.5} fill="url(#tradeGradient)" dot={false} activeDot={{ r: 4, fill: selectedAsset.color, stroke: "#07110c", strokeWidth: 2 }} />
+            </AreaChart>}
+          </ResponsiveContainer>}
+          {marketError ? <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-white/35">{marketError}</p> : null}
+          {!marketError && priceHistory.length === 0 ? <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-white/35">Loading price history…</p> : null}
+        </div>
+        <p className="mt-2 text-[10px] text-white/25">Candles use provider OHLC data when available; the fallback feed derives ranges from quote samples.</p>
+        <div className="mt-6 grid gap-4 rounded-xl border border-white/[0.08] bg-black/10 p-4 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">USD available</p><p className="mt-2 text-sm font-medium text-white/80">$1,000,000.00</p></div>
+            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">Current holding</p><p className="mt-2 text-sm font-medium text-white/80">0.00 {selectedSymbol}</p></div>
+            <label className="col-span-2 sm:col-span-1"><span className="text-[9px] uppercase tracking-[0.14em] text-white/25">Quantity</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-1.5 h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-white outline-none focus:border-[#c4ff0d]/45" /></label>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:min-w-[210px]"><Button type="button" onClick={() => setOrderType("BUY")} className={orderType === "BUY" ? "h-9 rounded-lg bg-[#c4ff0d] text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]" : "h-9 rounded-lg border border-[#c4ff0d]/20 bg-transparent text-xs text-[#c4ff0d] hover:bg-[#c4ff0d]/10"}>BUY {selectedSymbol}</Button><Button type="button" onClick={() => setOrderType("SELL")} variant="outline" className={orderType === "SELL" ? "h-9 rounded-lg border-[#ff7f7f]/50 bg-[#ff7f7f]/10 text-xs text-[#ff9b9b]" : "h-9 rounded-lg border-white/10 bg-transparent text-xs text-white/50 hover:bg-white/[0.08]"}>SELL {selectedSymbol}</Button></div>
+        </div>
+        <div className="mt-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><p className="text-[10px] text-white/30">Trades are recorded to your room history after confirmation.</p><Button type="button" onClick={submitOrder} className="h-9 rounded-lg bg-white/[0.08] px-4 text-xs text-white/75 hover:bg-[#c4ff0d]/15 hover:text-[#c4ff0d]">Review {orderType} order <ChevronRight className="size-3.5" /></Button></div>
+        {orderMessage ? <p className="mt-3 rounded-lg border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.06] px-3 py-2 text-xs text-[#c4ff0d]">{orderMessage}</p> : null}
+      </section>
+    </div>
   );
 }
 
@@ -131,7 +370,7 @@ export function DashboardShell() {
           <div className="hidden h-8 w-px bg-white/10 lg:block" />
           <div className="hidden min-w-0 items-center gap-2 lg:flex">
             <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
-            <span className="truncate text-xs font-medium text-white/75">The green room</span>
+            <span className="truncate text-xs font-medium text-white/75">Sagar&apos;s green room</span>
             <span className="text-[10px] text-white/30">7 DAY CHALLENGE</span>
           </div>
 
@@ -161,7 +400,7 @@ export function DashboardShell() {
             <div className="flex items-center gap-2.5 border-l border-white/10 pl-3">
               <div className="flex size-8 items-center justify-center rounded-full bg-[#c4ff0d] text-xs font-bold text-[#0a170d]">MS</div>
               <div className="hidden xl:block">
-                <p className="text-xs font-medium text-white/80">Maya Singh</p>
+                <p className="text-xs font-medium text-white/80">Sagar Sahu</p>
                 <p className="text-[9px] text-white/30">room owner</p>
               </div>
             </div>
@@ -191,13 +430,14 @@ export function DashboardShell() {
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
+        {activeTab === "Trade" ? <TradePanel /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
               <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
-              {activeTab} / mock data
+              {activeTab} / current room
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, Maya.</h1>
+            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, Sagar.</h1>
             <p className="mt-2 text-sm text-white/40">Your room is moving. Here&apos;s what the tape says so far.</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/35">
@@ -220,10 +460,10 @@ export function DashboardShell() {
                   Portfolio History
                 </div>
                 <div className="mt-3 flex items-end gap-3">
-                  <span className="text-3xl font-semibold tracking-[-0.06em] sm:text-4xl">$1,084,260</span>
-                  <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-[#c4ff0d]"><ArrowUpRight className="size-3.5" /> +8.43%</span>
+                  <span className="text-3xl font-semibold tracking-[-0.06em] sm:text-4xl">$1,000,000</span>
+                  <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-white/45">$0.00</span>
                 </div>
-                <p className="mt-1 text-[11px] text-white/30">+$84,260 since the room started</p>
+                <p className="mt-1 text-[11px] text-white/30">Starting capital held in USD</p>
               </div>
               <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/10 p-1">
                 {["1H", "24H", "1W"].map((range) => (
@@ -322,7 +562,7 @@ export function DashboardShell() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-lg font-semibold tracking-[-0.06em]">$1.08M</span>
+                  <span className="text-lg font-semibold tracking-[-0.06em]">$1.00M</span>
                   <span className="text-[9px] uppercase tracking-[0.12em] text-white/30">total</span>
                 </div>
               </div>
@@ -341,8 +581,8 @@ export function DashboardShell() {
             <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-5 sm:flex-row sm:items-start">
               <div>
                 <div className="flex items-center gap-2 text-xs text-white/45"><CircleDollarSign className="size-4 text-[#c4ff0d]/75" /> My Portfolio</div>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.06em]">$1,084,260</p>
-                <p className="mt-1 text-xs text-[#c4ff0d]">+$84,260 <span className="text-white/30">all time</span></p>
+                <p className="mt-3 text-2xl font-semibold tracking-[-0.06em]">$1,000,000</p>
+                <p className="mt-1 text-xs text-white/45">$0.00 <span className="text-white/30">all time</span></p>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-black/10 px-3 py-2.5 sm:text-right">
                 <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> Ends in</p>
@@ -373,7 +613,7 @@ export function DashboardShell() {
             </div>
 
             <div className="space-y-2">
-              {holdings.map((holding) => (
+              {holdings.length === 0 ? <div className="rounded-xl border border-dashed border-white/[0.1] px-3 py-5 text-center"><p className="text-xs text-white/55">No positions yet</p><p className="mt-1 text-[10px] text-white/25">Your $1M starts in USD cash.</p></div> : holdings.map((holding) => (
                 <div key={holding.symbol} className="rounded-xl border border-white/[0.07] bg-black/10 p-3 transition-colors hover:border-[#c4ff0d]/20 hover:bg-[#c4ff0d]/[0.025]">
                   <div className="flex items-center gap-2.5">
                     <AssetMark symbol={holding.symbol} color={holding.color} />
@@ -414,6 +654,7 @@ export function DashboardShell() {
             </button>
           </section>
         </div>
+        </>}
       </section>
     </main>
   );
