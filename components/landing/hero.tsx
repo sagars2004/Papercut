@@ -3,7 +3,6 @@
 import { motion } from "framer-motion";
 import {
   ArrowUpRight,
-  Check,
   ChevronDown,
   CircleHelp,
   LockKeyhole,
@@ -11,6 +10,7 @@ import {
   Sparkles,
   Trophy,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ const coins = [
   {
     ticker: "BTC",
     symbol: "₿",
-    className: "left-[3%] top-[12%] sm:left-[8%] sm:top-[13%]",
+    className: "left-[0%] top-[3%] sm:left-[2%] sm:top-[5%]",
     color: "#f7931a",
     duration: 6.5,
     delay: 0,
@@ -28,7 +28,7 @@ const coins = [
   {
     ticker: "ETH",
     symbol: "◆",
-    className: "right-[1%] top-[24%] sm:right-[8%] sm:top-[23%]",
+    className: "right-[0%] top-[4%] sm:right-[2%] sm:top-[6%]",
     color: "#9ba4ff",
     duration: 7.5,
     delay: 1.2,
@@ -37,7 +37,7 @@ const coins = [
   {
     ticker: "SOL",
     symbol: "≋",
-    className: "bottom-[13%] left-[7%] sm:bottom-[15%] sm:left-[13%]",
+    className: "bottom-[-8%] left-[8%] sm:bottom-[-7%] sm:left-[12%]",
     color: "#a8ffcf",
     duration: 8.5,
     delay: 0.7,
@@ -52,11 +52,11 @@ const entering = {
 
 export function Hero() {
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const router = useRouter();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (email.trim()) setSubmitted(true);
+    if (email.trim()) router.push("/dashboard");
   }
 
   return (
@@ -70,28 +70,28 @@ export function Hero() {
         initial={{ opacity: 0, y: -14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative z-20 mx-auto flex w-full max-w-[1380px] items-center justify-between px-5 py-6 sm:px-8 lg:px-12 lg:py-8"
+        className="relative z-20 mx-auto flex w-full max-w-[1380px] items-center justify-between px-5 py-5 sm:px-8 lg:px-12 lg:py-6"
       >
         <a href="#top" className="group flex items-center gap-3" aria-label="Papercut home">
-          <span className="relative flex size-9 items-center justify-center rounded-xl border border-[#c4ff0d]/50 bg-[#c4ff0d]/10 text-[#c4ff0d] shadow-[0_0_28px_rgba(196,255,13,0.12)] transition-transform group-hover:rotate-[-8deg]">
-            <Scissors className="size-[17px]" strokeWidth={2.2} />
+          <span className="relative flex size-10 items-center justify-center rounded-xl border border-[#c4ff0d]/50 bg-[#c4ff0d]/10 text-[#c4ff0d] shadow-[0_0_28px_rgba(196,255,13,0.12)] transition-transform group-hover:rotate-[-8deg]">
+            <Scissors className="size-[19px]" strokeWidth={2.2} />
           </span>
-          <span className="text-[15px] font-semibold tracking-[-0.03em] text-white">papercut</span>
+          <span className="text-[18px] font-semibold tracking-[-0.04em] text-white">papercut</span>
         </a>
 
-        <div className="hidden items-center gap-8 text-[12px] font-medium text-white/50 md:flex">
+        <div className="hidden items-center gap-9 text-sm font-medium text-white/55 md:flex">
           <a className="transition-colors hover:text-[#c4ff0d]" href="#how-it-works">How it works</a>
           <a className="transition-colors hover:text-[#c4ff0d]" href="#leaderboard">Leaderboard</a>
           <a className="transition-colors hover:text-[#c4ff0d]" href="#rooms">Rooms</a>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Button variant="ghost" className="h-9 rounded-full px-3 text-xs text-white/65 hover:bg-white/5 hover:text-white sm:px-4">Log in</Button>
-          <Button className="h-9 rounded-full bg-[#c4ff0d] px-4 text-xs font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
+          <Button variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button>
+          <Button className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
         </div>
       </motion.nav>
 
-      <section id="top" className="relative z-10 mx-auto grid w-full max-w-[1380px] items-center gap-14 px-5 pb-16 pt-10 sm:px-8 md:pt-20 lg:grid-cols-[0.92fr_1.08fr] lg:gap-5 lg:px-12 lg:pb-20 lg:pt-20">
+      <section id="top" className="relative z-10 mx-auto grid w-full max-w-[1380px] items-center gap-14 px-5 pb-12 pt-5 sm:px-8 md:pt-10 lg:grid-cols-[0.92fr_1.08fr] lg:gap-5 lg:px-12 lg:pb-14 lg:pt-10">
         <motion.div
           initial="hidden"
           animate="visible"
@@ -99,7 +99,7 @@ export function Hero() {
           transition={{ duration: 0.7, delay: 0.12, ease: "easeOut" }}
           className="relative z-10 max-w-[620px]"
         >
-          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.07] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.07] px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">
             <span className="size-1.5 animate-pulse rounded-full bg-[#c4ff0d]" />
             Social trading, with a coach
           </div>
@@ -130,7 +130,6 @@ export function Hero() {
                 value={email}
                 onChange={(event) => {
                   setEmail(event.target.value);
-                  setSubmitted(false);
                 }}
                 required
               />
@@ -142,16 +141,7 @@ export function Hero() {
           </form>
 
           <div className="mt-4 flex min-h-5 items-center gap-2 text-xs text-white/35">
-            {submitted ? (
-              <>
-                <span className="flex size-4 items-center justify-center rounded-full bg-[#c4ff0d] text-[#0a170d]"><Check className="size-3" strokeWidth={3} /></span>
-                You&apos;re on the list. Your room is ready when you are.
-              </>
-            ) : (
-              <>
-                <LockKeyhole className="size-3.5" /> No spam. Just your invite and daily debriefs.
-              </>
-            )}
+            <LockKeyhole className="size-3.5" /> No spam. Just your invite and daily debriefs.
           </div>
         </motion.div>
 
@@ -166,7 +156,7 @@ export function Hero() {
           <div className="absolute left-1/2 top-1/2 h-[59%] w-[59%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-white/10" />
           <div className="absolute left-1/2 top-1/2 h-[40%] w-[40%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#c4ff0d]/10 blur-3xl" />
 
-          <div className="absolute left-1/2 top-1/2 w-[min(86%,470px)] -translate-x-1/2 -translate-y-1/2 rotate-[-5deg] rounded-[28px] border border-white/15 bg-[#10241a]/80 p-3 shadow-[0_30px_90px_rgba(0,0,0,0.45),0_0_60px_rgba(151,255,99,0.06)] backdrop-blur-xl sm:p-4">
+          <div className="absolute left-1/2 top-1/2 w-[min(86%,470px)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-white/15 bg-[#10241a]/80 p-3 shadow-[0_30px_90px_rgba(0,0,0,0.45),0_0_60px_rgba(151,255,99,0.06)] backdrop-blur-xl sm:p-4">
             <div className="rounded-[20px] border border-white/[0.08] bg-[#0a1710]/95 p-4 sm:p-5">
               <div className="flex items-start justify-between">
                 <div>
