@@ -343,13 +343,14 @@ function TradePanel() {
 }
 
 type DashboardShellProps = {
+  roomName: string;
   user: {
     name: string;
     email: string;
   };
 };
 
-export function DashboardShell({ user }: DashboardShellProps) {
+export function DashboardShell({ roomName, user }: DashboardShellProps) {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(2 * 86400 + 8 * 3600 + 41 * 60);
@@ -378,7 +379,7 @@ export function DashboardShell({ user }: DashboardShellProps) {
           <div className="hidden h-8 w-px bg-white/10 lg:block" />
           <div className="hidden min-w-0 items-center gap-2 lg:flex">
             <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
-            <span className="truncate text-xs font-medium text-white/75">Your first room</span>
+            <span className="truncate text-xs font-medium text-white/75">{roomName}</span>
             <span className="text-[10px] text-white/30">7 DAY CHALLENGE</span>
           </div>
 

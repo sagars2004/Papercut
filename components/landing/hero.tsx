@@ -86,7 +86,7 @@ export function Hero() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Button type="button" onClick={() => router.push("/auth?next=/dashboard")} variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button>
+          <Button type="button" onClick={() => router.push("/auth?next=/rooms")} variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button>
           <Button type="button" onClick={() => router.push("/auth?next=/onboarding")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
         </div>
       </motion.nav>

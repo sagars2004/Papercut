@@ -18,7 +18,7 @@ export default async function OnboardingPage() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">One small setup step</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">What should your room call you?</h1>
         <p className="mt-3 text-sm leading-6 text-white/45">This name appears on room invites, leaderboards, and your private debrief history.</p>
-        <div className="mt-8"><AccountForm email={user.email ?? ""} initialName={initialName} onboarding /></div>
+        <div className="mt-8"><AccountForm email={user.email ?? ""} initialName={initialName} nextPath="/rooms" onboarding /></div>
       </section>
     </main>
   );

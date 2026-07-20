@@ -16,6 +16,14 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Supabase setup
+
+1. Copy `.env.example` to `.env` and add your Supabase and market-data credentials.
+2. In the Supabase SQL Editor, run [schema.sql](supabase/schema.sql), then run [20260719_room_lifecycle.sql](supabase/migrations/20260719_room_lifecycle.sql).
+3. In Supabase Auth URL Configuration, add `http://localhost:3000/auth/callback` as a redirect URL. Add the production equivalent before deployment.
+
+The room migration adds invite codes, host/member roles, and the server-side create, join, and start functions used by the app.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

@@ -10,7 +10,7 @@ type AuthPageProps = {
 
 export default async function AuthPage({ searchParams }: AuthPageProps) {
   const query = await searchParams;
-  const nextPath = getSafeNextPath(typeof query.next === "string" ? query.next : undefined, "/onboarding");
+  const nextPath = getSafeNextPath(typeof query.next === "string" ? query.next : undefined, "/rooms");
   const initialEmail = typeof query.email === "string" ? query.email : "";
   const initialError = query.error === "expired_link"
     ? "That sign-in link has expired. Request a new one below."

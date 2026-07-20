@@ -6,7 +6,7 @@ import { getSafeNextPath } from "@/lib/auth";
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const nextPath = getSafeNextPath(requestUrl.searchParams.get("next") ?? undefined, "/onboarding");
+  const nextPath = getSafeNextPath(requestUrl.searchParams.get("next") ?? undefined, "/rooms");
   const redirectUrl = new URL(nextPath, requestUrl.origin);
   const response = NextResponse.redirect(redirectUrl);
 
