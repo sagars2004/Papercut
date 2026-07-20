@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { normalizeInviteCode } from "@/lib/rooms";
 
 export type RoomActionState = { error?: string };
 
@@ -30,7 +31,7 @@ export async function createRoom(_previousState: RoomActionState, formData: Form
 }
 
 export async function joinRoom(_previousState: RoomActionState, formData: FormData): Promise<RoomActionState> {
-  const inviteCode = getFormString(formData, "inviteCode").toUpperCase();
+  const inviteCode = normalizeInviteCode(getFormString(formData, "inviteCode"));
   if (!/^[A-Z0-9]{8}$/.test(inviteCode)) return { error: "Enter the 8-character invite code." };
 
   const supabase = await createClient();
@@ -54,4 +55,16 @@ export async function startRoom(roomId: string) {
 
   revalidatePath("/rooms");
   redirect("/dashboard?room=" + data.id);
+}
+
+export async function closeRoom(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/auth?next=/rooms");
+
+  const { error } = await supabase.rpc("close_room", { p_room_id: roomId });
+  if (error) redirect("/rooms?error=" + encodeURIComponent(error.message));
+
+  revalidatePath("/rooms");
+  redirect("/rooms?notice=room_closed");
 }

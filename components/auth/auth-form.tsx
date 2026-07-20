@@ -1,46 +1,74 @@
 "use client";
 
-import { ArrowRight, CheckCircle2, Mail } from "lucide-react";
+import { ArrowRight, KeyRound, LogOut, Mail } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/browser";
 
 type AuthFormProps = {
+  activeEmail?: string;
+  backPath?: string;
   initialEmail?: string;
   initialError?: string;
   nextPath: string;
 };
 
-export function AuthForm({ initialEmail = "", initialError = "", nextPath }: AuthFormProps) {
+type AuthMode = "login" | "signup";
+
+export function AuthForm({ activeEmail = "", backPath = "/", initialEmail = "", initialError = "", nextPath }: AuthFormProps) {
+  const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
-  const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<AuthMode>(initialEmail ? "signup" : "login");
+  const [status, setStatus] = useState<"idle" | "submitting">("idle");
   const [error, setError] = useState(initialError);
+  const [hasActiveSession, setHasActiveSession] = useState(Boolean(activeEmail));
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus("sending");
+    if (password.length < 8) {
+      setError("Use a password with at least 8 characters.");
+      return;
+    }
+
+    setStatus("submitting");
     setError("");
+    const supabase = createClient();
+    const normalizedEmail = email.trim().toLowerCase();
+    const result = mode === "signup"
+      ? await supabase.auth.signUp({ email: normalizedEmail, password })
+      : await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
 
-    const callbackUrl = new URL("/auth/callback", window.location.origin);
-    callbackUrl.searchParams.set("next", nextPath);
-
-    const { error: signInError } = await createClient().auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: callbackUrl.toString(),
-      },
-    });
-
-    if (signInError) {
-      setError(signInError.message);
+    if (result.error) {
+      setError(result.error.message);
       setStatus("idle");
       return;
     }
 
-    setStatus("sent");
+    if (mode === "signup" && !result.data.session) {
+      setError("Email confirmation is still enabled in Supabase. Disable Confirm email for this POC, then try again.");
+      setStatus("idle");
+      return;
+    }
+
+    router.replace(nextPath);
+    router.refresh();
   }
+
+  async function useDifferentAccount() {
+    await createClient().auth.signOut();
+    setHasActiveSession(false);
+    setError("");
+  }
+
+  const isSubmitting = status === "submitting";
+  const title = mode === "signup" ? "Create your trading account." : "Welcome back.";
+  const description = mode === "signup"
+    ? "Use an email and password to keep your rooms and trades tied to you."
+    : "Sign in with the email and password registered to your Papercut account.";
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#06110d] px-5 py-10 text-white">
@@ -51,39 +79,43 @@ export function AuthForm({ initialEmail = "", initialError = "", nextPath }: Aut
           papercut
         </Link>
 
-        {status === "sent" ? (
-          <div className="py-12 text-center">
-            <div className="mx-auto flex size-14 items-center justify-center rounded-full border border-[#c4ff0d]/30 bg-[#c4ff0d]/10 text-[#c4ff0d]"><CheckCircle2 className="size-7" /></div>
-            <h1 className="mt-6 text-2xl font-semibold tracking-[-0.05em]">Check your email</h1>
-            <p className="mt-3 text-sm leading-6 text-white/45">We sent a secure sign-in link to <span className="text-white/80">{email}</span>. Open it here to continue.</p>
-            <button type="button" onClick={() => setStatus("idle")} className="mt-7 text-xs font-semibold text-[#c4ff0d] hover:text-white">Use a different email</button>
-          </div>
-        ) : (
-          <>
-            <div className="mt-10">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Your trading identity</p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Start your next experiment.</h1>
-              <p className="mt-3 text-sm leading-6 text-white/45">No password needed. We&apos;ll send a magic link so you can create rooms and keep your trade history yours.</p>
-            </div>
+        {hasActiveSession ? <div className="mt-7 rounded-xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.06] p-3 text-xs leading-5 text-white/55">You&apos;re currently signed in as <span className="font-medium text-white/85">{activeEmail}</span>. To use <span className="font-medium text-white/85">{email || "a different email"}</span>, sign out first.<button type="button" onClick={useDifferentAccount} className="mt-2 flex items-center gap-1.5 font-semibold text-[#c4ff0d] hover:text-white"><LogOut className="size-3.5" /> Sign out and use a different account</button></div> : null}
 
-            <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-              <label className="block">
-                <span className="mb-2 block text-xs font-medium text-white/70">Email address</span>
-                <span className="flex h-12 items-center gap-3 rounded-xl border border-white/10 bg-black/15 px-4 focus-within:border-[#c4ff0d]/55">
-                  <Mail className="size-4 text-white/30" />
-                  <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@inbox.com" className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/25" />
-                </span>
-              </label>
-              {error ? <p role="alert" className="rounded-lg border border-[#ff7f7f]/30 bg-[#ff7f7f]/10 px-3 py-2 text-xs text-[#ffb4b4]">{error}</p> : null}
-              <Button type="submit" disabled={status === "sending"} className="h-12 w-full rounded-xl bg-[#c4ff0d] text-sm font-semibold text-[#0a170d] hover:bg-[#d8ff62] disabled:opacity-60">
-                {status === "sending" ? "Sending secure link…" : "Email me a sign-in link"}
-                <ArrowRight className="size-4" />
-              </Button>
-            </form>
+        <div className="mt-10">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Your trading identity</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">{title}</h1>
+          <p className="mt-3 text-sm leading-6 text-white/45">{description}</p>
+        </div>
 
-            <p className="mt-5 text-center text-[11px] leading-5 text-white/30">By continuing, you&apos;re creating a Papercut account for virtual trading only—not investment advice.</p>
-          </>
-        )}
+        <div className="mt-7 grid grid-cols-2 rounded-xl border border-white/10 bg-black/15 p-1 text-xs font-semibold">
+          <button type="button" onClick={() => { setMode("login"); setError(""); }} className={mode === "login" ? "rounded-lg bg-white/10 px-3 py-2 text-white" : "rounded-lg px-3 py-2 text-white/40 transition-colors hover:text-white"}>Log in</button>
+          <button type="button" onClick={() => { setMode("signup"); setError(""); }} className={mode === "signup" ? "rounded-lg bg-[#c4ff0d] px-3 py-2 text-[#0a170d]" : "rounded-lg px-3 py-2 text-white/40 transition-colors hover:text-white"}>Sign up</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <label className="block">
+            <span className="mb-2 block text-xs font-medium text-white/70">Email address</span>
+            <span className="flex h-12 items-center gap-3 rounded-xl border border-white/10 bg-black/15 px-4 focus-within:border-[#c4ff0d]/55">
+              <Mail className="size-4 text-white/30" />
+              <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none" />
+            </span>
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs font-medium text-white/70">Password</span>
+            <span className="flex h-12 items-center gap-3 rounded-xl border border-white/10 bg-black/15 px-4 focus-within:border-[#c4ff0d]/55">
+              <KeyRound className="size-4 text-white/30" />
+              <input type="password" required minLength={8} autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none" />
+            </span>
+          </label>
+          {error ? <p role="alert" className="rounded-lg border border-[#ff7f7f]/30 bg-[#ff7f7f]/10 px-3 py-2 text-xs text-[#ffb4b4]">{error}</p> : null}
+          <Button type="submit" disabled={isSubmitting || hasActiveSession} className="h-12 w-full rounded-xl bg-[#c4ff0d] text-sm font-semibold text-[#0a170d] hover:bg-[#d8ff62] disabled:opacity-60">
+            {isSubmitting ? "Signing you in…" : mode === "signup" ? "Create account" : "Log in"}
+            <ArrowRight className="size-4" />
+          </Button>
+        </form>
+
+        <p className="mt-5 text-center text-[11px] leading-5 text-white/30">Papercut is virtual trading only—not investment advice.</p>
+        <Link href={backPath} className="mt-5 block text-center text-xs font-medium text-white/40 transition-colors hover:text-[#c4ff0d]">← Back to room setup</Link>
       </div>
     </main>
   );

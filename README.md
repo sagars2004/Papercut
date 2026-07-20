@@ -19,10 +19,10 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 ## Supabase setup
 
 1. Copy `.env.example` to `.env` and add your Supabase and market-data credentials.
-2. In the Supabase SQL Editor, run [schema.sql](supabase/schema.sql), then run [20260719_room_lifecycle.sql](supabase/migrations/20260719_room_lifecycle.sql).
-3. In Supabase Auth URL Configuration, add `http://localhost:3000/auth/callback` as a redirect URL. Add the production equivalent before deployment.
+2. In the Supabase SQL Editor, run [schema.sql](supabase/schema.sql), then run [20260719_room_lifecycle.sql](supabase/migrations/20260719_room_lifecycle.sql), [20260719_profiles_waiting_room.sql](supabase/migrations/20260719_profiles_waiting_room.sql), [20260719_host_role_backfill.sql](supabase/migrations/20260719_host_role_backfill.sql), and [20260720_close_room.sql](supabase/migrations/20260720_close_room.sql), in that order.
+3. In Supabase Auth, enable Email + Password and disable **Confirm email** for this hackathon POC. Add a production email-verification policy before any public launch.
 
-The room migration adds invite codes, host/member roles, and the server-side create, join, and start functions used by the app.
+The room migrations add invite codes, host/member roles, public room display names, and the server-side create, join, and start functions used by the app.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

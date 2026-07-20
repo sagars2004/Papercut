@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight,
   ChevronDown,
   CircleHelp,
   LockKeyhole,
@@ -11,7 +10,6 @@ import {
   Trophy,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -51,13 +49,7 @@ const entering = {
 };
 
 export function Hero() {
-  const [email, setEmail] = useState("");
   const router = useRouter();
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (email.trim()) router.push("/auth?email=" + encodeURIComponent(email.trim()) + "&next=/onboarding");
-  }
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#06110d] text-white selection:bg-[#c4ff0d] selection:text-[#06110d]">
@@ -87,7 +79,7 @@ export function Hero() {
 
         <div className="flex items-center gap-2 sm:gap-3">
           <Button type="button" onClick={() => router.push("/auth?next=/rooms")} variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button>
-          <Button type="button" onClick={() => router.push("/auth?next=/onboarding")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
+          <Button type="button" onClick={() => router.push("/create")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
         </div>
       </motion.nav>
 
@@ -119,29 +111,13 @@ export function Hero() {
             Trade $1M in virtual capital against your friends. Then find out what your decisions are really teaching you.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-9 flex max-w-[510px] flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex h-14 flex-1 items-center rounded-2xl border border-white/10 bg-white/[0.055] px-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-sm transition-colors focus-within:border-[#c4ff0d]/60 focus-within:bg-white/[0.08]">
-              <span className="mr-3 text-white/30" aria-hidden="true">@</span>
-              <input
-                aria-label="Email address"
-                className="h-full min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
-                type="email"
-                placeholder="you@inbox.com"
-                value={email}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                }}
-                required
-              />
-            </div>
-            <Button type="submit" className="h-14 rounded-2xl bg-[#c4ff0d] px-6 text-sm font-semibold text-[#0a170d] shadow-[0_0_30px_rgba(196,255,13,0.2)] transition-all hover:-translate-y-0.5 hover:bg-[#d8ff62] hover:shadow-[0_0_36px_rgba(196,255,13,0.3)]">
-              Create a room
-              <ArrowUpRight className="size-4" />
-            </Button>
-          </form>
+          <div className="mt-9 flex max-w-[510px] flex-col gap-3 sm:flex-row">
+            <Button type="button" onClick={() => router.push("/create")} className="h-14 flex-1 rounded-2xl bg-[#c4ff0d] px-6 text-sm font-semibold text-[#0a170d] shadow-[0_0_30px_rgba(196,255,13,0.2)] transition-all hover:-translate-y-0.5 hover:bg-[#d8ff62] hover:shadow-[0_0_36px_rgba(196,255,13,0.3)]">Create a room</Button>
+            <Button type="button" onClick={() => router.push("/join")} variant="outline" className="h-14 flex-1 rounded-2xl border-[#c4ff0d]/30 bg-white/[0.04] px-6 text-sm font-semibold text-[#c4ff0d] hover:bg-[#c4ff0d]/10">Join a room</Button>
+          </div>
 
           <div className="mt-4 flex min-h-5 items-center gap-2 text-xs text-white/35">
-            <LockKeyhole className="size-3.5" /> No spam. Just your invite and daily debriefs.
+            <LockKeyhole className="size-3.5" /> One account. $1M each. No real money.
           </div>
         </motion.div>
 
