@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { MARKET_ASSETS } from "@/lib/market-assets";
+import { persistMarketSnapshots } from "@/lib/market-snapshots";
+import { createClient } from "@/lib/supabase/server";
 
 type CoinMarketCapQuote = {
   quote?: {
@@ -16,9 +18,14 @@ type CoinGeckoPrice = {
   usd_24h_change?: number;
 };
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
+const marketRevalidate = 60;
 
 export async function GET() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in to view market data." }, { status: 401 });
+
   const coinGeckoKey = process.env.COINGECKO_API_KEY;
   if (coinGeckoKey) {
     const url = new URL("https://api.coingecko.com/api/v3/simple/price");
@@ -29,7 +36,7 @@ export async function GET() {
     try {
       const response = await fetch(url, {
         headers: { accept: "application/json", "x-cg-demo-api-key": coinGeckoKey },
-        next: { revalidate },
+        next: { revalidate: marketRevalidate },
       });
 
       if (response.ok) {
@@ -39,6 +46,7 @@ export async function GET() {
           price: prices[asset.id]?.usd ?? null,
           change24h: prices[asset.id]?.usd_24h_change ?? null,
         }));
+        await persistMarketSnapshots(assets);
         return NextResponse.json({ assets, asOf: new Date().toISOString(), provider: "coingecko" });
       }
     } catch {
@@ -59,7 +67,7 @@ export async function GET() {
   try {
     const response = await fetch(url, {
       headers: { accept: "application/json", "X-CMC_PRO_API_KEY": apiKey },
-      next: { revalidate },
+      next: { revalidate: marketRevalidate },
     });
 
     if (!response.ok) {
@@ -78,7 +86,8 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ assets, asOf: new Date().toISOString() });
+    await persistMarketSnapshots(assets);
+    return NextResponse.json({ assets, asOf: new Date().toISOString(), provider: "coinmarketcap" });
   } catch {
     return NextResponse.json({ error: "Unable to reach market data provider." }, { status: 502 });
   }

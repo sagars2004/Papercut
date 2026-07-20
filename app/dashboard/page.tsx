@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getDisplayName } from "@/lib/auth";
+import { calculatePortfolioSummary, type HoldingInput, type LatestPrice } from "@/lib/portfolio";
 import { createClient } from "@/lib/supabase/server";
 
 type DashboardPageProps = {
@@ -16,12 +17,25 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   if (!user) redirect("/auth?next=/rooms");
   if (!roomId) redirect("/rooms");
 
-  const { data: membership } = await supabase.from("players").select("id").eq("room_id", roomId).eq("user_id", user.id).maybeSingle();
+  const { data: membership } = await supabase.from("players").select("id, cash_balance").eq("room_id", roomId).eq("user_id", user.id).maybeSingle();
   if (!membership) redirect("/rooms");
 
-  const { data: room } = await supabase.from("rooms").select("name, status, invite_code").eq("id", roomId).maybeSingle();
+  const { data: room } = await supabase.from("rooms").select("name, status, invite_code, duration_days, ends_at, starting_capital").eq("id", roomId).maybeSingle();
   if (!room) redirect("/rooms");
   if (room.status !== "active") redirect("/rooms/" + room.invite_code);
 
-  return <DashboardShell roomName={room.name} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
+  const { data: holdingData } = await supabase.from("holdings").select("asset_symbol, quantity, average_cost_basis").eq("player_id", membership.id).gt("quantity", 0);
+  const holdings = (holdingData ?? []) as HoldingInput[];
+  const symbols = holdings.map((holding) => holding.asset_symbol);
+  const { data: priceData } = symbols.length > 0
+    ? await supabase.from("price_snapshots").select("asset_symbol, price_usd, captured_at").in("asset_symbol", symbols).order("captured_at", { ascending: false })
+    : { data: [] as LatestPrice[] };
+  const portfolio = calculatePortfolioSummary({
+    cashBalance: membership.cash_balance,
+    holdings,
+    latestPrices: (priceData ?? []) as LatestPrice[],
+    startingCapital: room.starting_capital,
+  });
+
+  return <DashboardShell durationDays={room.duration_days} endsAt={room.ends_at} portfolio={portfolio} roomName={room.name} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
 }

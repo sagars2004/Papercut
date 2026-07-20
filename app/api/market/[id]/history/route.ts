@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { MARKET_ASSETS } from "@/lib/market-assets";
+import { createClient } from "@/lib/supabase/server";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -17,9 +18,14 @@ type CoinMarketCapHistory = {
 
 type CoinGeckoOhlc = [number, number, number, number, number];
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
+const marketRevalidate = 300;
 
 export async function GET(request: Request, context: RouteContext) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in to view market data." }, { status: 401 });
+
   const { id } = await context.params;
   const asset = MARKET_ASSETS.find((candidate) => candidate.symbol === id.toUpperCase());
   const range = new URL(request.url).searchParams.get("range") ?? "24h";
@@ -38,7 +44,7 @@ export async function GET(request: Request, context: RouteContext) {
     try {
       const response = await fetch(url, {
         headers: { accept: "application/json", "x-cg-demo-api-key": coinGeckoKey },
-        next: { revalidate },
+        next: { revalidate: marketRevalidate },
       });
 
       if (response.ok) {
@@ -74,7 +80,7 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const response = await fetch(url, {
       headers: { accept: "application/json", "X-CMC_PRO_API_KEY": apiKey },
-      next: { revalidate },
+      next: { revalidate: marketRevalidate },
     });
 
     if (!response.ok) {

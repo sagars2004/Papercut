@@ -38,29 +38,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/auth";
 import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
+import type { PortfolioSummary } from "@/lib/portfolio";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
-
-const history = [
-  { time: "09:00", value: 1000000 },
-  { time: "10:00", value: 1000000 },
-  { time: "11:00", value: 1000000 },
-  { time: "12:00", value: 1000000 },
-  { time: "13:00", value: 1000000 },
-  { time: "14:00", value: 1000000 },
-  { time: "15:00", value: 1000000 },
-  { time: "16:00", value: 1000000 },
-  { time: "17:00", value: 1000000 },
-  { time: "18:00", value: 1000000 },
-  { time: "19:00", value: 1000000 },
-];
-
-const allocation = [
-  { name: "BTC", value: 0, color: "#c4ff0d" },
-  { name: "ETH", value: 0, color: "#9da68e" },
-  { name: "SOL", value: 0, color: "#687660" },
-  { name: "Cash", value: 100, color: "#334336" },
-];
 
 const holdingStats = [
   { symbol: "BTC", name: "Bitcoin", percent: 84, color: "#f7931a" },
@@ -68,8 +48,6 @@ const holdingStats = [
   { symbol: "SOL", name: "Solana", percent: 61, color: "#a8ffcf" },
   { symbol: "LINK", name: "Chainlink", percent: 38, color: "#5e8cff" },
 ];
-
-const holdings: Array<{ symbol: string; quantity: string; value: string; change: string; color: string }> = [];
 
 const ticker = [
   ["BTC", "$65,942.20", "+2.41%"],
@@ -343,6 +321,9 @@ function TradePanel() {
 }
 
 type DashboardShellProps = {
+  durationDays: number;
+  endsAt: string | null;
+  portfolio: PortfolioSummary;
   roomName: string;
   user: {
     name: string;
@@ -350,10 +331,15 @@ type DashboardShellProps = {
   };
 };
 
-export function DashboardShell({ roomName, user }: DashboardShellProps) {
+export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user }: DashboardShellProps) {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(2 * 86400 + 8 * 3600 + 41 * 60);
+  const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationDays * 86400);
+  const portfolioHistory = [
+    { time: "Start", value: portfolio.startingCapital },
+    { time: "Now", value: portfolio.totalValue },
+  ];
+  const pnlClass = portfolio.totalPnl >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]";
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -380,7 +366,7 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
           <div className="hidden min-w-0 items-center gap-2 lg:flex">
             <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
             <span className="truncate text-xs font-medium text-white/75">{roomName}</span>
-            <span className="text-[10px] text-white/30">7 DAY CHALLENGE</span>
+            <span className="text-[10px] text-white/30">{durationDays} DAY CHALLENGE</span>
           </div>
 
           <nav className="ml-auto flex items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-1 sm:gap-1.5" aria-label="Room navigation">
@@ -447,7 +433,7 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
               {activeTab} / current room
             </div>
             <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, {user.name.split(" ")[0]}.</h1>
-            <p className="mt-2 text-sm text-white/40">Your account is ready. Create or join a room to start trading with friends.</p>
+            <p className="mt-2 text-sm text-white/40">Your portfolio is valued from your cash balance and the latest recorded market prices.</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/35">
             <Clock3 className="size-4 text-[#c4ff0d]/75" />
@@ -469,10 +455,10 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
                   Portfolio History
                 </div>
                 <div className="mt-3 flex items-end gap-3">
-                  <span className="text-3xl font-semibold tracking-[-0.06em] sm:text-4xl">$1,000,000</span>
-                  <span className="mb-1 flex items-center gap-1 text-xs font-semibold text-white/45">$0.00</span>
+                  <span className="text-3xl font-semibold tracking-[-0.06em] sm:text-4xl">{formatUsd(portfolio.totalValue)}</span>
+                  <span className={"mb-1 flex items-center gap-1 text-xs font-semibold " + pnlClass}>{portfolio.totalPnl >= 0 ? "+" : ""}{formatUsd(portfolio.totalPnl)}</span>
                 </div>
-                <p className="mt-1 text-[11px] text-white/30">Starting capital held in USD</p>
+                <p className="mt-1 text-[11px] text-white/30">{portfolio.latestPriceAt ? "Latest market valuation recorded " + new Date(portfolio.latestPriceAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Starting capital held in USD"}</p>
               </div>
               <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/10 p-1">
                 {["1H", "24H", "1W"].map((range) => (
@@ -489,7 +475,7 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
 
             <div className="mt-8 h-[245px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={history} margin={{ top: 8, right: 4, left: -25, bottom: 0 }}>
+                <AreaChart data={portfolioHistory} margin={{ top: 8, right: 4, left: -25, bottom: 0 }}>
                   <defs>
                     <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#c4ff0d" stopOpacity={0.26} />
@@ -565,21 +551,21 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
               <div className="relative h-[155px] w-[155px] shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={allocation} dataKey="value" nameKey="name" innerRadius={51} outerRadius={72} paddingAngle={3} stroke="none">
-                      {allocation.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    <Pie data={portfolio.allocations} dataKey="value" nameKey="name" innerRadius={51} outerRadius={72} paddingAngle={3} stroke="none">
+                      {portfolio.allocations.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-lg font-semibold tracking-[-0.06em]">$1.00M</span>
+                  <span className="text-lg font-semibold tracking-[-0.06em]">{formatUsd(portfolio.totalValue)}</span>
                   <span className="text-[9px] uppercase tracking-[0.12em] text-white/30">total</span>
                 </div>
               </div>
               <div className="min-w-0 flex-1 space-y-3">
-                {allocation.map((asset) => (
+                {portfolio.allocations.map((asset) => (
                   <div key={asset.name} className="flex items-center justify-between gap-2 text-xs">
                     <span className="flex items-center gap-2 text-white/55"><span className="size-2 rounded-full" style={{ backgroundColor: asset.color }} /> {asset.name}</span>
-                    <span className="font-medium text-white/75">{asset.value}%</span>
+                    <span className="font-medium text-white/75">{asset.value.toFixed(1)}%</span>
                   </div>
                 ))}
               </div>
@@ -590,8 +576,8 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
             <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-5 sm:flex-row sm:items-start">
               <div>
                 <div className="flex items-center gap-2 text-xs text-white/45"><CircleDollarSign className="size-4 text-[#c4ff0d]/75" /> My Portfolio</div>
-                <p className="mt-3 text-2xl font-semibold tracking-[-0.06em]">$1,000,000</p>
-                <p className="mt-1 text-xs text-white/45">$0.00 <span className="text-white/30">all time</span></p>
+                <p className="mt-3 text-2xl font-semibold tracking-[-0.06em]">{formatUsd(portfolio.totalValue)}</p>
+                <p className={"mt-1 text-xs " + pnlClass}>{portfolio.totalPnl >= 0 ? "+" : ""}{formatUsd(portfolio.totalPnl)} <span className="text-white/30">all time</span></p>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-black/10 px-3 py-2.5 sm:text-right">
                 <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> Ends in</p>
@@ -622,19 +608,19 @@ export function DashboardShell({ roomName, user }: DashboardShellProps) {
             </div>
 
             <div className="space-y-2">
-              {holdings.length === 0 ? <div className="rounded-xl border border-dashed border-white/[0.1] px-3 py-5 text-center"><p className="text-xs text-white/55">No positions yet</p><p className="mt-1 text-[10px] text-white/25">Your $1M starts in USD cash.</p></div> : holdings.map((holding) => (
+              {portfolio.holdings.length === 0 ? <div className="rounded-xl border border-dashed border-white/[0.1] px-3 py-5 text-center"><p className="text-xs text-white/55">No positions yet</p><p className="mt-1 text-[10px] text-white/25">Your {formatUsd(portfolio.cashBalance)} remains in USD cash.</p></div> : portfolio.holdings.map((holding) => (
                 <div key={holding.symbol} className="rounded-xl border border-white/[0.07] bg-black/10 p-3 transition-colors hover:border-[#c4ff0d]/20 hover:bg-[#c4ff0d]/[0.025]">
                   <div className="flex items-center gap-2.5">
                     <AssetMark symbol={holding.symbol} color={holding.color} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="text-xs font-semibold text-white/80">{holding.symbol}</p>
-                        <span className="text-[10px] text-[#c4ff0d]">{holding.change}</span>
+                        <span className={holding.unrealizedPnl === null || holding.unrealizedPnl >= 0 ? "text-[10px] text-[#c4ff0d]" : "text-[10px] text-[#ff7f7f]"}>{holding.unrealizedPnl === null ? "Price pending" : (holding.unrealizedPnl >= 0 ? "+" : "") + formatUsd(holding.unrealizedPnl)}</span>
                       </div>
-                      <p className="mt-0.5 truncate text-[10px] text-white/30">{holding.quantity}</p>
+                      <p className="mt-0.5 truncate text-[10px] text-white/30">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {holding.symbol}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs font-medium text-white/80">{holding.value}</p>
+                      <p className="text-xs font-medium text-white/80">{formatUsd(holding.marketValue)}</p>
                       <p className="mt-0.5 text-[9px] text-white/25">market value</p>
                     </div>
                   </div>

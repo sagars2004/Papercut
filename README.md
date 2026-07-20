@@ -18,8 +18,8 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## Supabase setup
 
-1. Copy `.env.example` to `.env` and add your Supabase and market-data credentials.
-2. In the Supabase SQL Editor, run [schema.sql](supabase/schema.sql), then run [20260719_room_lifecycle.sql](supabase/migrations/20260719_room_lifecycle.sql), [20260719_profiles_waiting_room.sql](supabase/migrations/20260719_profiles_waiting_room.sql), [20260719_host_role_backfill.sql](supabase/migrations/20260719_host_role_backfill.sql), and [20260720_close_room.sql](supabase/migrations/20260720_close_room.sql), in that order.
+1. Copy `.env.example` to `.env` and add your Supabase and market-data credentials. `SUPABASE_SERVICE_ROLE_KEY` is used only by the server to write trusted market-price snapshots; never expose it through a `NEXT_PUBLIC_` variable.
+2. In the Supabase SQL Editor, run [schema.sql](supabase/schema.sql), then run [20260719_room_lifecycle.sql](supabase/migrations/20260719_room_lifecycle.sql), [20260719_profiles_waiting_room.sql](supabase/migrations/20260719_profiles_waiting_room.sql), [20260719_host_role_backfill.sql](supabase/migrations/20260719_host_role_backfill.sql), [20260720_close_room.sql](supabase/migrations/20260720_close_room.sql), and [20260720_market_snapshots.sql](supabase/migrations/20260720_market_snapshots.sql), in that order.
 3. In Supabase Auth, enable Email + Password and disable **Confirm email** for this hackathon POC. Add a production email-verification policy before any public launch.
 
 The room migrations add invite codes, host/member roles, public room display names, and the server-side create, join, and start functions used by the app.
