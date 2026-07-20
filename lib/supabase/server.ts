@@ -18,8 +18,8 @@ export async function createClient() {
               cookieStore.set(name, value, options);
             });
           } catch {
-            // Server Components cannot always mutate cookies. Middleware will
-            // refresh the session once auth is connected.
+            // Server Components cannot always mutate cookies. Proxy refreshes
+            // the session for request paths that need it.
           }
         },
       },

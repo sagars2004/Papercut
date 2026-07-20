@@ -36,6 +36,7 @@ import {
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
+import { getInitials } from "@/lib/auth";
 import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
@@ -341,7 +342,14 @@ function TradePanel() {
   );
 }
 
-export function DashboardShell() {
+type DashboardShellProps = {
+  user: {
+    name: string;
+    email: string;
+  };
+};
+
+export function DashboardShell({ user }: DashboardShellProps) {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(2 * 86400 + 8 * 3600 + 41 * 60);
@@ -370,7 +378,7 @@ export function DashboardShell() {
           <div className="hidden h-8 w-px bg-white/10 lg:block" />
           <div className="hidden min-w-0 items-center gap-2 lg:flex">
             <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
-            <span className="truncate text-xs font-medium text-white/75">Sagar&apos;s green room</span>
+            <span className="truncate text-xs font-medium text-white/75">Your first room</span>
             <span className="text-[10px] text-white/30">7 DAY CHALLENGE</span>
           </div>
 
@@ -397,13 +405,13 @@ export function DashboardShell() {
               <Bell className="size-4" />
               <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#c4ff0d]" />
             </button>
-            <div className="flex items-center gap-2.5 border-l border-white/10 pl-3">
-              <div className="flex size-8 items-center justify-center rounded-full bg-[#c4ff0d] text-xs font-bold text-[#0a170d]">MS</div>
+            <Link href="/account" className="flex items-center gap-2.5 border-l border-white/10 pl-3 transition-opacity hover:opacity-80" aria-label="Open account settings">
+              <div className="flex size-8 items-center justify-center rounded-full bg-[#c4ff0d] text-xs font-bold text-[#0a170d]">{getInitials(user.name)}</div>
               <div className="hidden xl:block">
-                <p className="text-xs font-medium text-white/80">Sagar Sahu</p>
-                <p className="text-[9px] text-white/30">room owner</p>
+                <p className="max-w-[140px] truncate text-xs font-medium text-white/80">{user.name}</p>
+                <p className="max-w-[140px] truncate text-[9px] text-white/30">{user.email}</p>
               </div>
-            </div>
+            </Link>
           </div>
           <button type="button" className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 text-white/50 md:hidden" aria-label="Open menu">
             <Menu className="size-4" />
@@ -437,8 +445,8 @@ export function DashboardShell() {
               <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
               {activeTab} / current room
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, Sagar.</h1>
-            <p className="mt-2 text-sm text-white/40">Your room is moving. Here&apos;s what the tape says so far.</p>
+            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, {user.name.split(" ")[0]}.</h1>
+            <p className="mt-2 text-sm text-white/40">Your account is ready. Create or join a room to start trading with friends.</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/35">
             <Clock3 className="size-4 text-[#c4ff0d]/75" />
