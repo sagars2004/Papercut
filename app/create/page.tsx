@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { RoomEntryForm } from "@/components/rooms/room-entry-form";
 
-type CreatePageProps = { searchParams: Promise<{ duration?: string | string[]; email?: string | string[]; name?: string | string[]; roomName?: string | string[] }> };
+type CreatePageProps = { searchParams: Promise<{ durationUnit?: string | string[]; durationValue?: string | string[]; email?: string | string[]; name?: string | string[]; roomName?: string | string[] }> };
 
 function value(query: Record<string, string | string[] | undefined>, key: string) {
   return typeof query[key] === "string" ? query[key] : "";
@@ -18,7 +18,7 @@ export default async function CreatePage({ searchParams }: CreatePageProps) {
         <p className="mt-10 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Host a challenge</p>
         <h1 className="mt-3 text-4xl font-semibold tracking-[-0.065em]">Create a room for your friends.</h1>
         <p className="mt-3 text-sm leading-6 text-white/45">Choose the finish line, then invite everyone to start their $1M virtual portfolios together.</p>
-        <div className="mt-8"><RoomEntryForm mode="create" initialName={value(query, "name")} initialEmail={value(query, "email")} initialRoomName={value(query, "roomName")} initialDurationDays={value(query, "duration")} /></div>
+        <div className="mt-8"><RoomEntryForm mode="create" initialName={value(query, "name")} initialEmail={value(query, "email")} initialRoomName={value(query, "roomName")} initialDurationValue={value(query, "durationValue")} initialDurationUnit={value(query, "durationUnit") as "minutes" | "hours" | "days"} /></div>
       </section>
     </main>
   );

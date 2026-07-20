@@ -17,10 +17,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   if (!user) redirect("/auth?next=/rooms");
   if (!roomId) redirect("/rooms");
 
-  const { data: membership } = await supabase.from("players").select("id, cash_balance").eq("room_id", roomId).eq("user_id", user.id).maybeSingle();
+  const { data: membership } = await supabase.from("players").select("id, cash_balance, role").eq("room_id", roomId).eq("user_id", user.id).maybeSingle();
   if (!membership) redirect("/rooms");
 
-  const { data: room } = await supabase.from("rooms").select("name, status, invite_code, duration_days, ends_at, starting_capital").eq("id", roomId).maybeSingle();
+  const { data: room } = await supabase.from("rooms").select("name, status, invite_code, duration_minutes, ends_at, starting_capital, created_by").eq("id", roomId).maybeSingle();
   if (!room) redirect("/rooms");
   if (room.status !== "active") redirect("/rooms/" + room.invite_code);
 
@@ -37,5 +37,5 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     startingCapital: room.starting_capital,
   });
 
-  return <DashboardShell durationDays={room.duration_days} endsAt={room.ends_at} portfolio={portfolio} roomName={room.name} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
+  return <DashboardShell durationMinutes={room.duration_minutes} endsAt={room.ends_at} isHost={room.created_by === user.id && membership.role === "host"} portfolio={portfolio} roomId={roomId} roomName={room.name} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
 }

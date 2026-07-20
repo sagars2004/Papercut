@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { normalizeInviteCode } from "@/lib/rooms";
+import { durationToMinutes, normalizeInviteCode, type DurationUnit } from "@/lib/rooms";
 
 export type RoomActionState = { error?: string };
 
@@ -15,15 +15,17 @@ function getFormString(formData: FormData, key: string) {
 
 export async function createRoom(_previousState: RoomActionState, formData: FormData): Promise<RoomActionState> {
   const name = getFormString(formData, "name");
-  const durationDays = Number(getFormString(formData, "durationDays"));
+  const durationValue = Number(getFormString(formData, "durationValue"));
+  const durationUnit = getFormString(formData, "durationUnit") as DurationUnit;
+  const durationMinutes = durationToMinutes(durationValue, durationUnit);
   if (name.length < 3 || name.length > 48) return { error: "Room names must be between 3 and 48 characters." };
-  if (![5, 7, 14].includes(durationDays)) return { error: "Choose a 5, 7, or 14 day challenge." };
+  if (!Number.isFinite(durationValue) || !["minutes", "hours", "days"].includes(durationUnit) || durationMinutes < 1 || durationMinutes > 43200) return { error: "Choose a duration between 1 minute and 30 days." };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Your session has ended. Please sign in again." };
 
-  const { data, error } = await supabase.rpc("create_room", { p_name: name, p_duration_days: durationDays });
+  const { data, error } = await supabase.rpc("create_room", { p_name: name, p_duration_minutes: durationMinutes });
   if (error || !data) return { error: error?.message ?? "We could not create your room." };
 
   revalidatePath("/rooms");

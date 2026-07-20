@@ -48,7 +48,12 @@ const entering = {
   visible: { opacity: 1, y: 0 },
 };
 
-export function Hero() {
+type HeroProps = {
+  activeRoom?: { id: string; name: string };
+  user?: { email: string; name: string };
+};
+
+export function Hero({ activeRoom, user }: HeroProps) {
   const router = useRouter();
 
   return (
@@ -78,10 +83,11 @@ export function Hero() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Button type="button" onClick={() => router.push("/auth?next=/rooms")} variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button>
-          <Button type="button" onClick={() => router.push("/create")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button>
+          {user ? <><Button type="button" onClick={() => router.push("/account")} variant="ghost" className="h-10 max-w-[130px] truncate rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">{user.name}</Button><Button type="button" onClick={() => router.push(activeRoom ? "/dashboard?room=" + activeRoom.id : "/rooms")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">{activeRoom ? "Open room" : "My rooms"}</Button></> : <><Button type="button" onClick={() => router.push("/auth?next=/rooms")} variant="ghost" className="h-10 rounded-full px-3.5 text-sm text-white/70 hover:bg-white/5 hover:text-white sm:px-5">Log in</Button><Button type="button" onClick={() => router.push("/create")} className="h-10 rounded-full bg-[#c4ff0d] px-5 text-sm font-semibold text-[#0b1b0f] shadow-[0_0_24px_rgba(196,255,13,0.18)] hover:bg-[#d6ff59]">Sign up</Button></>}
         </div>
       </motion.nav>
+
+      {activeRoom ? <motion.aside initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.45 }} role="status" className="relative z-20 mx-auto mt-1 flex w-[calc(100%-2.5rem)] max-w-[720px] flex-col gap-3 rounded-2xl border border-[#c4ff0d]/30 bg-[#0e2416]/95 p-4 shadow-[0_18px_60px_rgba(0,0,0,0.25)] backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold text-[#c4ff0d]">Your challenge is in progress</p><p className="mt-1 text-sm text-white/65">Head back to <span className="font-medium text-white">{activeRoom.name}</span> to keep trading with your room.</p></div><Button type="button" onClick={() => router.push("/dashboard?room=" + activeRoom.id)} className="h-10 shrink-0 rounded-xl bg-[#c4ff0d] px-4 text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]">Return to room</Button></motion.aside> : null}
 
       <section id="top" className="relative z-10 mx-auto grid w-full max-w-[1380px] items-center gap-14 px-5 pb-12 pt-5 sm:px-8 md:pt-10 lg:grid-cols-[0.92fr_1.08fr] lg:gap-5 lg:px-12 lg:pb-14 lg:pt-10">
         <motion.div

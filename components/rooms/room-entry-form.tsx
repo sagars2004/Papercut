@@ -5,23 +5,25 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { normalizeInviteCode } from "@/lib/rooms";
+import { normalizeInviteCode, type DurationUnit } from "@/lib/rooms";
 
 type RoomEntryFormProps = {
   mode: "create" | "join";
-  initialDurationDays?: string;
+  initialDurationUnit?: DurationUnit;
+  initialDurationValue?: string;
   initialEmail?: string;
   initialInviteCode?: string;
   initialName?: string;
   initialRoomName?: string;
 };
 
-export function RoomEntryForm({ mode, initialDurationDays = "7", initialEmail = "", initialInviteCode = "", initialName = "", initialRoomName = "" }: RoomEntryFormProps) {
+export function RoomEntryForm({ mode, initialDurationUnit = "hours", initialDurationValue = "1", initialEmail = "", initialInviteCode = "", initialName = "", initialRoomName = "" }: RoomEntryFormProps) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
   const [roomName, setRoomName] = useState(initialRoomName);
-  const [durationDays, setDurationDays] = useState(["5", "7", "14"].includes(initialDurationDays) ? initialDurationDays : "7");
+  const [durationValue, setDurationValue] = useState(Number(initialDurationValue) > 0 ? initialDurationValue : "1");
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>(["minutes", "hours", "days"].includes(initialDurationUnit) ? initialDurationUnit : "hours");
   const [inviteCode, setInviteCode] = useState(normalizeInviteCode(initialInviteCode));
   const [error, setError] = useState("");
   const isCreate = mode === "create";
@@ -50,10 +52,10 @@ export function RoomEntryForm({ mode, initialDurationDays = "7", initialEmail = 
     }
 
     const destination = isCreate
-      ? `/rooms/new?${new URLSearchParams({ roomName: roomName.trim(), duration: durationDays }).toString()}`
+      ? `/rooms/new?${new URLSearchParams({ roomName: roomName.trim(), durationValue, durationUnit }).toString()}`
       : `/join/${normalizedInvite}`;
     const setupPath = isCreate
-      ? `/create?${new URLSearchParams({ name, email: email.trim(), roomName: roomName.trim(), duration: durationDays }).toString()}`
+      ? `/create?${new URLSearchParams({ name, email: email.trim(), roomName: roomName.trim(), durationValue, durationUnit }).toString()}`
       : `/join?${new URLSearchParams({ name, email: email.trim(), inviteCode: normalizedInvite }).toString()}`;
     const onboardingPath = `/onboarding?${new URLSearchParams({ name, next: destination, back: setupPath }).toString()}`;
     router.push(`/auth?${new URLSearchParams({ email: email.trim(), next: onboardingPath, back: setupPath }).toString()}`);
@@ -80,14 +82,8 @@ export function RoomEntryForm({ mode, initialDurationDays = "7", initialEmail = 
           </label>
           <fieldset>
             <legend className="mb-2 text-xs font-medium text-white/70">Challenge length</legend>
-            <div className="grid grid-cols-3 gap-2">
-              {[5, 7, 14].map((days) => (
-                <label key={days} className="cursor-pointer">
-                  <input className="peer sr-only" type="radio" name="durationDays" value={days} checked={durationDays === String(days)} onChange={(event) => setDurationDays(event.target.value)} />
-                  <span className="flex h-11 items-center justify-center rounded-xl border border-white/10 text-xs text-white/45 transition-colors peer-checked:border-[#c4ff0d]/45 peer-checked:bg-[#c4ff0d]/10 peer-checked:text-[#c4ff0d]">{days} days</span>
-                </label>
-              ))}
-            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_130px] gap-2"><input required type="number" min="1" max="43200" step="1" value={durationValue} onChange={(event) => setDurationValue(event.target.value)} className="h-12 min-w-0 rounded-xl border border-white/10 bg-black/15 px-4 text-sm text-white outline-none focus:border-[#c4ff0d]/55" aria-label="Challenge duration" /><select value={durationUnit} onChange={(event) => setDurationUnit(event.target.value as DurationUnit)} className="h-12 rounded-xl border border-white/10 bg-[#10241a] px-3 text-sm text-white outline-none focus:border-[#c4ff0d]/55"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div>
+            <span className="mt-2 block text-xs leading-5 text-white/40">Try 15 minutes for a quick demo. Rooms can run for up to 30 days.</span>
           </fieldset>
         </>
       ) : (

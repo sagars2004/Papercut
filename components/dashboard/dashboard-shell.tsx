@@ -19,6 +19,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Area,
@@ -39,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/auth";
 import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
 import type { PortfolioSummary } from "@/lib/portfolio";
+import { formatRoomDuration } from "@/lib/rooms";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
 
@@ -169,12 +171,16 @@ function SampledCandleChart({ candles }: { candles: CandlePoint[] }) {
   );
 }
 
-function TradePanel() {
+function TradePanel({ portfolio, roomId }: { portfolio: PortfolioSummary; roomId: string }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [selectedSymbol, setSelectedSymbol] = useState("BTC");
   const [orderType, setOrderType] = useState<"BUY" | "SELL">("BUY");
-  const [quantity, setQuantity] = useState("1");
+  const [orderInputMode, setOrderInputMode] = useState<"units" | "usd">("units");
+  const [orderAmount, setOrderAmount] = useState("1");
   const [orderMessage, setOrderMessage] = useState("");
+  const [orderError, setOrderError] = useState("");
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const [range, setRange] = useState<"1h" | "6h" | "24h">("24h");
   const [chartMode, setChartMode] = useState<ChartMode>("area");
   const [marketAssets, setMarketAssets] = useState<LiveMarketAsset[]>(() =>
@@ -188,6 +194,12 @@ function TradePanel() {
   const filteredAssets = marketAssets.filter((asset) =>
     (asset.symbol + asset.name).toLowerCase().includes(query.toLowerCase()),
   );
+  const selectedHolding = portfolio.holdings.find((holding) => holding.symbol === selectedSymbol);
+  const selectedPrice = selectedAsset.price;
+  const requestedQuantity = orderInputMode === "usd" && selectedPrice !== null && selectedPrice > 0
+    ? Number(orderAmount) / selectedPrice
+    : Number(orderAmount);
+  const orderValue = selectedPrice === null || !Number.isFinite(requestedQuantity) ? null : requestedQuantity * selectedPrice;
 
   useEffect(() => {
     let isCurrent = true;
@@ -236,9 +248,31 @@ function TradePanel() {
     };
   }, [selectedAsset.symbol, range]);
 
-  function submitOrder() {
-    const action = orderType === "BUY" ? "Buy" : "Sell";
-    setOrderMessage(action + " order for " + quantity + " " + selectedAsset.symbol + " is ready for account confirmation.");
+  async function submitOrder() {
+    if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+      setOrderError(`Enter a ${orderInputMode === "usd" ? "USD amount" : "quantity"} greater than zero.`);
+      return;
+    }
+
+    setIsSubmittingOrder(true);
+    setOrderError("");
+    setOrderMessage("");
+    try {
+      const response = await fetch("/api/trades", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: orderType, quantity: requestedQuantity, roomId, symbol: selectedAsset.symbol }),
+      });
+      const body = await response.json() as { error?: string; trade?: { action: string; assetSymbol: string; quantity: number } };
+      if (!response.ok) throw new Error(body.error ?? "We could not place that order.");
+
+      setOrderMessage(`${body.trade?.action ?? orderType} executed: ${body.trade?.quantity ?? requestedQuantity} ${body.trade?.assetSymbol ?? selectedAsset.symbol}.`);
+      router.refresh();
+    } catch (error) {
+      setOrderError(error instanceof Error ? error.message : "We could not place that order.");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   }
 
   return (
@@ -258,7 +292,7 @@ function TradePanel() {
         </div>
         <div className="mt-4 space-y-1">
           {filteredAssets.map((asset) => (
-            <button key={asset.symbol} type="button" onClick={() => { setSelectedSymbol(asset.symbol); setOrderMessage(""); }} className={selectedSymbol === asset.symbol ? "flex w-full items-center gap-2.5 rounded-xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.08] px-2.5 py-3 text-left" : "flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-3 text-left transition-colors hover:border-white/10 hover:bg-white/[0.04]"}>
+            <button key={asset.symbol} type="button" onClick={() => { setSelectedSymbol(asset.symbol); setOrderMessage(""); setOrderError(""); }} className={selectedSymbol === asset.symbol ? "flex w-full items-center gap-2.5 rounded-xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.08] px-2.5 py-3 text-left" : "flex w-full items-center gap-2.5 rounded-xl border border-transparent px-2.5 py-3 text-left transition-colors hover:border-white/10 hover:bg-white/[0.04]"}>
               <AssetMark symbol={asset.symbol} color={asset.color} />
               <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-white/80">{asset.symbol}</span><span className="block truncate text-[10px] text-white/30">{asset.name}</span></span>
               <span className="text-right"><span className="block text-[11px] text-white/70">{formatUsd(asset.price)}</span><span className={asset.change24h === null || asset.change24h >= 0 ? "block text-[10px] text-[#c4ff0d]" : "block text-[10px] text-[#ff7f7f]"}>{formatChange(asset.change24h)}</span></span>
@@ -307,23 +341,26 @@ function TradePanel() {
         <p className="mt-2 text-[10px] text-white/25">Candles use provider OHLC data when available; the fallback feed derives ranges from quote samples.</p>
         <div className="mt-6 grid gap-4 rounded-xl border border-white/[0.08] bg-black/10 p-4 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">USD available</p><p className="mt-2 text-sm font-medium text-white/80">$1,000,000.00</p></div>
-            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">Current holding</p><p className="mt-2 text-sm font-medium text-white/80">0.00 {selectedSymbol}</p></div>
-            <label className="col-span-2 sm:col-span-1"><span className="text-[9px] uppercase tracking-[0.14em] text-white/25">Quantity</span><input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="mt-1.5 h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-white outline-none focus:border-[#c4ff0d]/45" /></label>
+            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">USD available</p><p className="mt-2 text-sm font-medium text-white/80">{formatUsd(portfolio.cashBalance)}</p></div>
+            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">Current holding</p><p className="mt-2 text-sm font-medium text-white/80">{selectedHolding?.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) ?? "0.00"} {selectedSymbol}</p></div>
+            <div className="col-span-2 sm:col-span-1"><div className="flex items-center justify-between"><span className="text-[9px] uppercase tracking-[0.14em] text-white/25">{orderInputMode === "usd" ? "Order value" : "Quantity"}</span><div className="flex rounded-md border border-white/10 bg-black/10 p-0.5 text-[9px]"><button type="button" onClick={() => setOrderInputMode("units")} className={orderInputMode === "units" ? "rounded bg-[#c4ff0d] px-1.5 py-1 font-semibold text-[#0a170d]" : "rounded px-1.5 py-1 text-white/40 hover:text-white"}>Units</button><button type="button" onClick={() => setOrderInputMode("usd")} className={orderInputMode === "usd" ? "rounded bg-[#c4ff0d] px-1.5 py-1 font-semibold text-[#0a170d]" : "rounded px-1.5 py-1 text-white/40 hover:text-white"}>USD</button></div></div><input type="number" min="0" step="any" value={orderAmount} onChange={(event) => setOrderAmount(event.target.value)} className="mt-1.5 h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-white outline-none focus:border-[#c4ff0d]/45" /><p className="mt-1 text-[9px] text-white/30">{orderInputMode === "usd" ? (selectedPrice === null ? "Waiting for a price…" : "≈ " + requestedQuantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) + " " + selectedSymbol) : (orderValue === null ? "Waiting for a price…" : "≈ " + formatUsd(orderValue))}</p></div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:min-w-[210px]"><Button type="button" onClick={() => setOrderType("BUY")} className={orderType === "BUY" ? "h-9 rounded-lg bg-[#c4ff0d] text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]" : "h-9 rounded-lg border border-[#c4ff0d]/20 bg-transparent text-xs text-[#c4ff0d] hover:bg-[#c4ff0d]/10"}>BUY {selectedSymbol}</Button><Button type="button" onClick={() => setOrderType("SELL")} variant="outline" className={orderType === "SELL" ? "h-9 rounded-lg border-[#ff7f7f]/50 bg-[#ff7f7f]/10 text-xs text-[#ff9b9b]" : "h-9 rounded-lg border-white/10 bg-transparent text-xs text-white/50 hover:bg-white/[0.08]"}>SELL {selectedSymbol}</Button></div>
         </div>
-        <div className="mt-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><p className="text-[10px] text-white/30">Trades are recorded to your room history after confirmation.</p><Button type="button" onClick={submitOrder} className="h-9 rounded-lg bg-white/[0.08] px-4 text-xs text-white/75 hover:bg-[#c4ff0d]/15 hover:text-[#c4ff0d]">Review {orderType} order <ChevronRight className="size-3.5" /></Button></div>
+        <div className="mt-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><p className="text-[10px] text-white/30">Orders use the latest stored market price and update cash, holdings, and history together.</p><Button type="button" onClick={submitOrder} disabled={isSubmittingOrder || selectedAsset.price === null} className="h-9 rounded-lg bg-white/[0.08] px-4 text-xs text-white/75 hover:bg-[#c4ff0d]/15 hover:text-[#c4ff0d] disabled:opacity-50">{isSubmittingOrder ? "Executing…" : "Execute " + orderType + " order"} <ChevronRight className="size-3.5" /></Button></div>
         {orderMessage ? <p className="mt-3 rounded-lg border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.06] px-3 py-2 text-xs text-[#c4ff0d]">{orderMessage}</p> : null}
+        {orderError ? <p role="alert" className="mt-3 rounded-lg border border-[#ff7f7f]/30 bg-[#ff7f7f]/10 px-3 py-2 text-xs text-[#ffb4b4]">{orderError}</p> : null}
       </section>
     </div>
   );
 }
 
 type DashboardShellProps = {
-  durationDays: number;
+  durationMinutes: number;
   endsAt: string | null;
+  isHost: boolean;
   portfolio: PortfolioSummary;
+  roomId: string;
   roomName: string;
   user: {
     name: string;
@@ -331,10 +368,12 @@ type DashboardShellProps = {
   };
 };
 
-export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user }: DashboardShellProps) {
+export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roomId, roomName, user }: DashboardShellProps) {
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationDays * 86400);
+  const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationMinutes * 60);
+  const [endChallengeError, setEndChallengeError] = useState("");
+  const [isEndingChallenge, setIsEndingChallenge] = useState(false);
   const portfolioHistory = [
     { time: "Start", value: portfolio.startingCapital },
     { time: "Now", value: portfolio.totalValue },
@@ -348,6 +387,20 @@ export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user
 
     return () => window.clearInterval(timer);
   }, []);
+
+  async function endChallenge() {
+    setIsEndingChallenge(true);
+    setEndChallengeError("");
+    try {
+      const response = await fetch("/api/rooms/end", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId }) });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "We could not end this challenge.");
+      window.location.assign("/rooms");
+    } catch (error) {
+      setEndChallengeError(error instanceof Error ? error.message : "We could not end this challenge.");
+      setIsEndingChallenge(false);
+    }
+  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-[#07110c] text-white selection:bg-[#c4ff0d] selection:text-[#07110c]">
@@ -366,7 +419,7 @@ export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user
           <div className="hidden min-w-0 items-center gap-2 lg:flex">
             <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
             <span className="truncate text-xs font-medium text-white/75">{roomName}</span>
-            <span className="text-[10px] text-white/30">{durationDays} DAY CHALLENGE</span>
+            <span className="text-[10px] text-white/30">{formatRoomDuration(durationMinutes).toUpperCase()} CHALLENGE</span>
           </div>
 
           <nav className="ml-auto flex items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-1 sm:gap-1.5" aria-label="Room navigation">
@@ -425,7 +478,7 @@ export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
-        {activeTab === "Trade" ? <TradePanel /> : <>
+        {activeTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
@@ -570,6 +623,10 @@ export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user
                 ))}
               </div>
             </div>
+            <div className="mt-6 border-t border-white/[0.08] pt-4">
+              <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/30"><span>Asset</span><span className="text-right">Amount</span><span className="text-right">Current value</span></div>
+              {portfolio.holdings.length === 0 ? <p className="px-2 py-4 text-xs text-white/35">No crypto positions yet. Your allocation is entirely USD cash.</p> : <div className="mt-2 space-y-1">{portfolio.holdings.map((holding) => <div key={holding.symbol} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-black/10 px-2 py-2.5"><span className="flex items-center gap-2 text-xs font-semibold text-white/75"><span className="size-2 rounded-full" style={{ backgroundColor: holding.color }} />{holding.symbol}</span><span className="text-right text-[11px] text-white/55">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span><span className="text-right"><span className="block text-[11px] font-medium text-white/80">{formatUsd(holding.marketValue)}</span><span className="block text-[9px] text-white/30">{holding.currentPrice === null ? "Price pending" : formatUsd(holding.currentPrice)}</span></span></div>)}</div>}
+            </div>
           </section>
 
           <section className="rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-6 lg:col-span-1 lg:row-span-2">
@@ -631,6 +688,7 @@ export function DashboardShell({ durationDays, endsAt, portfolio, roomName, user
                 </div>
               ))}
             </div>
+            {isHost ? <div className="mt-5 border-t border-white/[0.08] pt-4"><Button type="button" onClick={endChallenge} disabled={isEndingChallenge} variant="outline" className="h-9 w-full rounded-lg border-[#ff8c8c]/30 bg-transparent text-xs font-semibold text-[#ffaaaa] hover:bg-[#ff8c8c]/10 hover:text-[#ffc1c1] disabled:opacity-60">{isEndingChallenge ? "Ending challenge…" : "End challenge"}</Button><p className="mt-2 text-center text-[10px] text-white/30">Ends trading for everyone immediately.</p>{endChallengeError ? <p role="alert" className="mt-2 text-center text-[10px] text-[#ffb4b4]">{endChallengeError}</p> : null}</div> : null}
           </section>
 
           <section className="rounded-2xl border border-[#c4ff0d]/15 bg-[#c4ff0d]/[0.045] p-5 sm:p-6">

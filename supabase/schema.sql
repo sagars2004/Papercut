@@ -4,6 +4,7 @@ create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   duration_days integer not null default 7 check (duration_days > 0),
+  duration_minutes integer not null default 10080 check (duration_minutes > 0),
   starting_capital numeric(14, 2) not null default 1000000,
   asset_universe text not null default 'crypto',
   status text not null default 'lobby' check (status in ('lobby', 'active', 'complete')),
