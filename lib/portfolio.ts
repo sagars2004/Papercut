@@ -17,6 +17,7 @@ export type PortfolioHolding = {
   color: string;
   currentPrice: number | null;
   marketValue: number;
+  name: string;
   percentOfPortfolio: number;
   quantity: number;
   symbol: string;
@@ -59,6 +60,7 @@ export function calculatePortfolioSummary({ cashBalance, holdings, latestPrices,
         color: asset?.color ?? "#9da68e",
         currentPrice,
         marketValue,
+        name: asset?.name ?? holding.asset_symbol,
         percentOfPortfolio: 0,
         quantity,
         symbol: holding.asset_symbol,

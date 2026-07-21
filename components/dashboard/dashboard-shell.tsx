@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -92,12 +92,21 @@ function formatCountdown(totalSeconds: number) {
   const days = Math.floor(totalSeconds / 86400);
   const hours = Math.floor((totalSeconds % 86400) / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
 
   return [
     String(days).padStart(2, "0") + "d",
     String(hours).padStart(2, "0") + "h",
     String(minutes).padStart(2, "0") + "m",
+    String(seconds).padStart(2, "0") + "s",
   ].join(" ");
+}
+
+function getSecondsLeft(endsAt: string | null, durationMinutes: number) {
+  if (!endsAt) return durationMinutes * 60;
+  const endTime = Date.parse(endsAt);
+  if (!Number.isFinite(endTime)) return durationMinutes * 60;
+  return Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
 }
 
 function AssetMark({ symbol, color }: { symbol: string; color: string }) {
@@ -138,20 +147,24 @@ function LiveTickerFeed() {
     };
   }, []);
 
-  const marqueeAssets = [...assets, ...assets];
+  const tickerGroups = Array.from({ length: 4 }, (_, index) => index);
 
   return (
     <div className="min-w-0 flex-1 overflow-hidden" aria-label="Live cryptocurrency prices">
       <motion.div
-        className="flex w-max items-center gap-7 pr-7 will-change-transform"
-        animate={{ x: ["0%", "-50%"] }}
-        transition={{ duration: 36, ease: "linear", repeat: Infinity }}
+        className="flex w-max items-center will-change-transform"
+        animate={{ x: ["0%", "-25%"] }}
+        transition={{ duration: 42, ease: "linear", repeat: Infinity, repeatType: "loop" }}
       >
-        {marqueeAssets.map((asset, index) => (
-          <div key={asset.symbol + "-" + index} aria-hidden={index >= assets.length} className="flex items-center gap-2 whitespace-nowrap text-[11px] text-white/50">
-            <span className="font-semibold text-white/80">{asset.symbol}</span>
-            <span>{formatUsd(asset.price)}</span>
-            <span className={asset.change24h === null ? "text-white/35" : asset.change24h >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]"}>{formatChange(asset.change24h)}</span>
+        {tickerGroups.map((groupIndex) => (
+          <div key={groupIndex} aria-hidden={groupIndex > 0} className="flex shrink-0 items-center gap-6 pr-6 sm:gap-8 sm:pr-8">
+            {assets.map((asset) => (
+              <div key={asset.symbol} className="flex items-center gap-2.5 whitespace-nowrap text-xs text-white/60 sm:text-sm">
+                <span className="font-semibold text-white/85">{asset.symbol}</span>
+                <span>{formatUsd(asset.price)}</span>
+                <span className={asset.change24h === null ? "text-white/35" : asset.change24h >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]"}>{formatChange(asset.change24h)}</span>
+              </div>
+            ))}
           </div>
         ))}
       </motion.div>
@@ -532,7 +545,7 @@ function TradePanel({ portfolio, roomId }: { portfolio: PortfolioSummary; roomId
         <div className="mt-6 grid gap-4 rounded-xl border border-white/[0.08] bg-black/10 p-4 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">USD available</p><p className="mt-2 text-sm font-medium text-white/80">{formatUsd(portfolio.cashBalance)}</p></div>
-            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">Current holding</p><p className="mt-2 text-sm font-medium text-white/80">{selectedHolding?.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) ?? "0.00"} {selectedSymbol}</p></div>
+            <div><p className="text-[9px] uppercase tracking-[0.14em] text-white/25">Current holding</p><p className="mt-2 text-sm font-medium text-white/80">{selectedHolding?.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) ?? "0.00"} {selectedSymbol} <span className="font-normal text-white/35">({selectedAsset.name})</span></p></div>
             <div className="col-span-2 sm:col-span-1"><div className="flex items-center justify-between"><span className="text-[9px] uppercase tracking-[0.14em] text-white/25">{orderInputMode === "usd" ? "Order value" : "Quantity"}</span><div className="flex rounded-md border border-white/10 bg-black/10 p-0.5 text-[9px]"><button type="button" onClick={() => setOrderInputMode("units")} className={orderInputMode === "units" ? "rounded bg-[#c4ff0d] px-1.5 py-1 font-semibold text-[#0a170d]" : "rounded px-1.5 py-1 text-white/40 hover:text-white"}>Units</button><button type="button" onClick={() => setOrderInputMode("usd")} className={orderInputMode === "usd" ? "rounded bg-[#c4ff0d] px-1.5 py-1 font-semibold text-[#0a170d]" : "rounded px-1.5 py-1 text-white/40 hover:text-white"}>USD</button></div></div><input type="number" min="0" step="any" value={orderAmount} onChange={(event) => setOrderAmount(event.target.value)} className="mt-1.5 h-8 w-full rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-white outline-none focus:border-[#c4ff0d]/45" /><p className="mt-1 text-[9px] text-white/30">{orderInputMode === "usd" ? (selectedPrice === null ? "Waiting for a price…" : "≈ " + requestedQuantity.toLocaleString(undefined, { maximumFractionDigits: 6 }) + " " + selectedSymbol) : (orderValue === null ? "Waiting for a price…" : "≈ " + formatUsd(orderValue))}</p></div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:min-w-[210px]"><Button type="button" onClick={() => setOrderType("BUY")} className={orderType === "BUY" ? "h-9 rounded-lg bg-[#c4ff0d] text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]" : "h-9 rounded-lg border border-[#c4ff0d]/20 bg-transparent text-xs text-[#c4ff0d] hover:bg-[#c4ff0d]/10"}>BUY {selectedSymbol}</Button><Button type="button" onClick={() => setOrderType("SELL")} variant="outline" className={orderType === "SELL" ? "h-9 rounded-lg border-[#ff7f7f]/50 bg-[#ff7f7f]/10 text-xs text-[#ff9b9b]" : "h-9 rounded-lg border-white/10 bg-transparent text-xs text-white/50 hover:bg-white/[0.08]"}>SELL {selectedSymbol}</Button></div>
@@ -644,22 +657,50 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
   const [portfolioRange, setPortfolioRange] = useState<PortfolioRange>("1w");
-  const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationMinutes * 60);
+  const [secondsLeft, setSecondsLeft] = useState(() => getSecondsLeft(endsAt, durationMinutes));
+  const [hasTimerExpired, setHasTimerExpired] = useState(() => !isComplete && getSecondsLeft(endsAt, durationMinutes) === 0);
+  const [hasDismissedTimeUpNotice, setHasDismissedTimeUpNotice] = useState(false);
   const [endChallengeError, setEndChallengeError] = useState("");
   const [isEndingChallenge, setIsEndingChallenge] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isCompleteRef = useRef(isComplete);
+  const hasRequestedExpirySync = useRef(false);
   const pnlClass = portfolio.totalPnl >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]";
   const currentRank = leaderboard.find((entry) => entry.isCurrentUser);
-  const displayedTab = isComplete && activeTab === "Trade" ? "Dashboard" : activeTab;
-  const visibleTabs = isComplete ? tabs.filter((tab) => tab !== "Trade") : tabs;
+  const isTimeExpired = hasTimerExpired;
+  const challengeIsOver = isComplete || isTimeExpired;
+  const shouldShowTimeUpNotice = isTimeExpired && !hasDismissedTimeUpNotice;
+  const displayedTab = challengeIsOver && activeTab === "Trade" ? "Dashboard" : activeTab;
+  const visibleTabs = challengeIsOver ? tabs.filter((tab) => tab !== "Trade") : tabs;
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSecondsLeft((current) => Math.max(0, current - 60));
-    }, 60000);
+    isCompleteRef.current = isComplete;
+  }, [isComplete]);
+
+  useEffect(() => {
+    const updateTimer = () => {
+      const remainingSeconds = getSecondsLeft(endsAt, durationMinutes);
+      setSecondsLeft(remainingSeconds);
+      if (!isCompleteRef.current && remainingSeconds === 0) setHasTimerExpired(true);
+    };
+    updateTimer();
+    const timer = window.setInterval(updateTimer, 1000);
 
     return () => window.clearInterval(timer);
-  }, []);
+  }, [durationMinutes, endsAt]);
+
+  useEffect(() => {
+    if (isComplete || !hasTimerExpired) return;
+
+    if (hasRequestedExpirySync.current) return;
+    hasRequestedExpirySync.current = true;
+
+    void fetch("/api/rooms/expire", {
+      body: JSON.stringify({ roomId }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }).finally(() => router.refresh());
+  }, [hasTimerExpired, isComplete, roomId, router]);
 
   useEffect(() => {
     const refresh = () => router.refresh();
@@ -766,15 +807,15 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
-        {!isComplete && displayedTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : displayedTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : displayedTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : displayedTab === "Feedback" ? <CoachDebriefPanel debrief={debrief} isComplete={isComplete} roomId={roomId} tradeCount={portfolioTrades.length} /> : <>
+        {!challengeIsOver && displayedTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : displayedTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : displayedTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : displayedTab === "Feedback" ? <CoachDebriefPanel debrief={debrief} isComplete={challengeIsOver} roomId={roomId} tradeCount={portfolioTrades.length} /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
               <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
               {displayedTab} / current room
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">{isComplete ? "Challenge complete, " + user.name.split(" ")[0] + "." : "Good evening, " + user.name.split(" ")[0] + "."}</h1>
-            <p className="mt-2 text-sm text-white/40">{isComplete ? "Trading is closed. Review the final room value, standings, and your private coach debrief." : "Your portfolio is valued from your cash balance and the latest recorded market prices."}</p>
+            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">{challengeIsOver ? "Challenge complete, " + user.name.split(" ")[0] + "." : "Good evening, " + user.name.split(" ")[0] + "."}</h1>
+            <p className="mt-2 text-sm text-white/40">{challengeIsOver ? "Trading is closed. Review the final room value, standings, and your private coach debrief." : "Your portfolio is valued from your cash balance and the latest recorded market prices."}</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/35">
             <Clock3 className="size-4 text-[#c4ff0d]/75" />
@@ -900,7 +941,7 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
             </div>
             <div className="mt-6 border-t border-white/[0.08] pt-4">
               <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/30"><span>Asset</span><span className="text-right">Amount</span><span className="text-right">Current value</span></div>
-              {portfolio.holdings.length === 0 ? <p className="px-2 py-4 text-xs text-white/35">No crypto positions yet. Your allocation is entirely USD cash.</p> : <div className="mt-2 space-y-1">{portfolio.holdings.map((holding) => <div key={holding.symbol} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-black/10 px-2 py-2.5"><span className="flex items-center gap-2 text-xs font-semibold text-white/75"><span className="size-2 rounded-full" style={{ backgroundColor: holding.color }} />{holding.symbol}</span><span className="text-right text-[11px] text-white/55">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span><span className="text-right"><span className="block text-[11px] font-medium text-white/80">{formatUsd(holding.marketValue)}</span><span className="block text-[9px] text-white/30">{holding.currentPrice === null ? "Price pending" : formatUsd(holding.currentPrice)}</span></span></div>)}</div>}
+              {portfolio.holdings.length === 0 ? <p className="px-2 py-4 text-xs text-white/35">No crypto positions yet. Your allocation is entirely USD cash.</p> : <div className="mt-2 space-y-1">{portfolio.holdings.map((holding) => <div key={holding.symbol} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-black/10 px-2 py-2.5"><span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-white/75"><span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: holding.color }} /><span className="truncate">{holding.symbol} <span className="font-normal text-white/35">({holding.name})</span></span></span><span className="text-right text-[11px] text-white/55">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span><span className="text-right"><span className="block text-[11px] font-medium text-white/80">{formatUsd(holding.marketValue)}</span><span className="block text-[9px] text-white/30">{holding.currentPrice === null ? "Price pending" : formatUsd(holding.currentPrice)}</span></span></div>)}</div>}
             </div>
           </section>
 
@@ -912,8 +953,8 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
                 <p className={"mt-1 text-xs " + pnlClass}>{portfolio.totalPnl >= 0 ? "+" : ""}{formatUsd(portfolio.totalPnl)} <span className="text-white/30">all time</span></p>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-black/10 px-3 py-2.5 sm:text-right">
-                <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> {isComplete ? "Status" : "Ends in"}</p>
-                <p className="mt-1 text-sm font-semibold text-[#c4ff0d]">{isComplete ? "Complete" : formatCountdown(secondsLeft)}</p>
+                <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> {challengeIsOver ? "Status" : "Ends in"}</p>
+                <p className="mt-1 text-sm font-semibold text-[#c4ff0d]">{challengeIsOver ? "Complete" : formatCountdown(secondsLeft)}</p>
               </div>
             </div>
 
@@ -946,7 +987,7 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
                     <AssetMark symbol={holding.symbol} color={holding.color} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="text-xs font-semibold text-white/80">{holding.symbol}</p>
+                        <p className="text-xs font-semibold text-white/80">{holding.symbol} <span className="font-normal text-white/35">({holding.name})</span></p>
                         <span className={holding.unrealizedPnl === null || holding.unrealizedPnl >= 0 ? "text-[10px] text-[#c4ff0d]" : "text-[10px] text-[#ff7f7f]"}>{holding.unrealizedPnl === null ? "Price pending" : (holding.unrealizedPnl >= 0 ? "+" : "") + formatUsd(holding.unrealizedPnl)}</span>
                       </div>
                       <p className="mt-0.5 truncate text-[10px] text-white/30">{holding.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {holding.symbol}</p>
@@ -957,18 +998,18 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
                     </div>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button variant="outline" className="h-7 rounded-lg border-[#c4ff0d]/25 bg-[#c4ff0d]/[0.06] text-[10px] text-[#c4ff0d] hover:bg-[#c4ff0d]/15">Buy</Button>
-                    <Button variant="outline" className="h-7 rounded-lg border-white/10 bg-white/[0.03] text-[10px] text-white/50 hover:bg-white/[0.08] hover:text-white">Sell</Button>
+                    <Button disabled={challengeIsOver} variant="outline" className="h-7 rounded-lg border-[#c4ff0d]/25 bg-[#c4ff0d]/[0.06] text-[10px] text-[#c4ff0d] hover:bg-[#c4ff0d]/15 disabled:cursor-not-allowed disabled:opacity-40">Buy</Button>
+                    <Button disabled={challengeIsOver} variant="outline" className="h-7 rounded-lg border-white/10 bg-white/[0.03] text-[10px] text-white/50 hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40">Sell</Button>
                   </div>
                 </div>
               ))}
             </div>
-            {isHost && !isComplete ? <div className="mt-5 border-t border-white/[0.08] pt-4"><Button type="button" onClick={endChallenge} disabled={isEndingChallenge} variant="outline" className="h-9 w-full rounded-lg border-[#ff8c8c]/30 bg-transparent text-xs font-semibold text-[#ffaaaa] hover:bg-[#ff8c8c]/10 hover:text-[#ffc1c1] disabled:opacity-60">{isEndingChallenge ? "Ending challenge…" : "End challenge"}</Button><p className="mt-2 text-center text-[10px] text-white/30">Ends trading for everyone immediately.</p>{endChallengeError ? <p role="alert" className="mt-2 text-center text-[10px] text-[#ffb4b4]">{endChallengeError}</p> : null}</div> : null}
+            {isHost && !challengeIsOver ? <div className="mt-5 border-t border-white/[0.08] pt-4"><Button type="button" onClick={endChallenge} disabled={isEndingChallenge} variant="outline" className="h-9 w-full rounded-lg border-[#ff8c8c]/30 bg-transparent text-xs font-semibold text-[#ffaaaa] hover:bg-[#ff8c8c]/10 hover:text-[#ffc1c1] disabled:opacity-60">{isEndingChallenge ? "Ending challenge…" : "End challenge"}</Button><p className="mt-2 text-center text-[10px] text-white/30">Ends trading for everyone immediately.</p>{endChallengeError ? <p role="alert" className="mt-2 text-center text-[10px] text-[#ffb4b4]">{endChallengeError}</p> : null}</div> : null}
           </section>
 
           <section className="rounded-2xl border border-[#c4ff0d]/15 bg-[#c4ff0d]/[0.045] p-5 sm:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-white/45"><Lightbulb className="size-4 text-[#c4ff0d]" /> {isComplete ? "Final coach debrief" : "Today's coach debrief"}</div>
+              <div className="flex items-center gap-2 text-xs text-white/45"><Lightbulb className="size-4 text-[#c4ff0d]" /> {challengeIsOver ? "Final coach debrief" : "Today's coach debrief"}</div>
               <Sparkles className="size-4 text-[#c4ff0d]/60" />
             </div>
             <p className="mt-6 max-w-[440px] text-xl font-medium leading-tight tracking-[-0.045em] text-white/90">
@@ -984,6 +1025,16 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
         </div>
         </>}
       </section>
+
+      {shouldShowTimeUpNotice ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="challenge-time-up-title">
+        <motion.div initial={{ opacity: 0, scale: 0.96, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.22 }} className="w-full max-w-md rounded-2xl border border-[#c4ff0d]/30 bg-[#0b1d13] p-6 shadow-[0_24px_100px_rgba(0,0,0,0.55)]">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-[#c4ff0d]/12 text-[#c4ff0d]"><Clock3 className="size-5" /></div>
+          <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Challenge complete</p>
+          <h2 id="challenge-time-up-title" className="mt-2 text-2xl font-semibold tracking-[-0.055em] text-white">Time&apos;s up.</h2>
+          <p className="mt-3 text-sm leading-6 text-white/55">Trading is now closed for everyone in {roomName}. Your final portfolio, rank, history, and coach debrief are ready to review.</p>
+          <Button type="button" onClick={() => setHasDismissedTimeUpNotice(true)} className="mt-6 h-10 w-full rounded-xl bg-[#c4ff0d] text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]">Review final results</Button>
+        </motion.div>
+      </div> : null}
     </main>
   );
 }
