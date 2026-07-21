@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getDisplayName } from "@/lib/auth";
 import { buildCoachMetrics } from "@/lib/coach";
-import type { CoachDebrief, CoachPattern } from "@/lib/coach-types";
+import type { CoachDebrief, CoachDebriefHistoryItem, CoachFinalRecap, CoachPattern } from "@/lib/coach-types";
 import { MARKET_ASSETS } from "@/lib/market-assets";
 import { calculatePortfolioSummary, type HoldingInput, type LatestPrice } from "@/lib/portfolio";
 import { createClient } from "@/lib/supabase/server";
@@ -16,7 +16,8 @@ type RoomPlayer = { cash_balance: number | string; id: string; role: "host" | "m
 type RoomHolding = HoldingInput & { player_id: string };
 type RoomProfile = { display_name: string; id: string };
 type RoomTrade = { action: "buy" | "sell"; asset_symbol: string; executed_at: string; player_id: string; price_at_execution: number | string; quantity: number | string };
-type StoredDebrief = { created_at: string; lesson_text: string; metrics_json: unknown; pattern_flags_json: unknown };
+type StoredDebrief = { created_at: string; debrief_date: string; lesson_text: string; metrics_json: unknown; pattern_flags_json: unknown };
+type StoredFinalCoachRecap = { created_at: string; recap_json: unknown };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -57,6 +58,23 @@ function parseStoredDebrief(stored: StoredDebrief | null, fallback: CoachDebrief
   };
 }
 
+function parseStoredFinalCoachRecap(stored: StoredFinalCoachRecap | null): CoachFinalRecap | null {
+  if (!stored || !isRecord(stored.recap_json)) return null;
+
+  const recap = stored.recap_json;
+  return {
+    createdAt: stored.created_at,
+    growthArea: stringFrom(recap.growthArea, "Keep reviewing the process behind each decision, not just the final mark."),
+    headline: stringFrom(recap.headline, "Your trading personality recap"),
+    model: typeof recap.model === "string" && recap.model.trim() ? recap.model.trim() : undefined,
+    nextChallenge: stringFrom(recap.nextChallenge, "Carry one clear entry rule and one clear exit rule into the next room."),
+    source: recap.generatedBy === "nvidia" ? "nvidia" : "fallback",
+    strength: stringFrom(recap.strength, "You now have a complete record of your simulated decisions to learn from."),
+    summary: stringFrom(recap.summary, "This recap combines your room activity, final portfolio, and saved debriefs."),
+    tradingStyle: stringFrom(recap.tradingStyle, "Developing trader"),
+  };
+}
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const query = await searchParams;
   const roomId = typeof query.room === "string" ? query.room : "";
@@ -77,13 +95,13 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const roomPlayers = (roomPlayerData ?? []) as RoomPlayer[];
   const playerIds = roomPlayers.map((player) => player.id);
   const userIds = roomPlayers.map((player) => player.user_id);
-  const today = new Date().toISOString().slice(0, 10);
-  const [{ data: holdingData }, { data: priceData }, { data: profileData }, { data: tradeData }, { data: debriefData }] = await Promise.all([
+  const [{ data: holdingData }, { data: priceData }, { data: profileData }, { data: tradeData }, { data: debriefData }, { data: finalCoachRecapData }] = await Promise.all([
     supabase.from("holdings").select("player_id, asset_symbol, quantity, average_cost_basis").in("player_id", playerIds).gt("quantity", 0),
     supabase.from("price_snapshots").select("asset_symbol, price_usd, captured_at").order("captured_at", { ascending: false }).limit(500),
     supabase.from("profiles").select("id, display_name").in("id", userIds),
     supabase.from("trades").select("player_id, asset_symbol, action, quantity, price_at_execution, executed_at").eq("player_id", membership.id).order("executed_at", { ascending: false }).limit(1000),
-    supabase.from("debriefs").select("created_at, lesson_text, metrics_json, pattern_flags_json").eq("player_id", membership.id).eq("room_id", roomId).eq("debrief_date", today).maybeSingle(),
+    supabase.from("debriefs").select("created_at, debrief_date, lesson_text, metrics_json, pattern_flags_json").eq("player_id", membership.id).eq("room_id", roomId).order("debrief_date", { ascending: false }),
+    supabase.from("final_coach_recaps").select("created_at, recap_json").eq("player_id", membership.id).eq("room_id", roomId).maybeSingle(),
   ]);
   const holdings = (holdingData ?? []) as RoomHolding[];
   const prices = (priceData ?? []) as LatestPrice[];
@@ -125,7 +143,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     quantity: Number(trade.quantity),
   }));
   const tradeHistory = portfolioTrades.slice(0, 50);
-  const debrief = parseStoredDebrief((debriefData as StoredDebrief | null) ?? null, buildCoachMetrics({ portfolio, trades: portfolioTrades }));
+  const coachMetrics = buildCoachMetrics({ portfolio, trades: portfolioTrades });
+  const debriefHistory = ((debriefData ?? []) as StoredDebrief[])
+    .map((stored) => {
+      const debrief = parseStoredDebrief(stored, coachMetrics);
+      return debrief ? { date: stored.debrief_date, debrief } satisfies CoachDebriefHistoryItem : null;
+    })
+    .filter((item): item is CoachDebriefHistoryItem => item !== null);
+  const debrief = room.status === "complete" ? debriefHistory[0]?.debrief ?? null : null;
+  const finalCoachRecap = room.status === "complete" ? parseStoredFinalCoachRecap((finalCoachRecapData as StoredFinalCoachRecap | null) ?? null) : null;
 
-  return <DashboardShell debrief={debrief} durationMinutes={room.duration_minutes} endsAt={room.ends_at} isComplete={room.status === "complete"} isHost={room.created_by === user.id && membership.role === "host"} leaderboard={leaderboard} portfolio={portfolio} portfolioTrades={portfolioTrades} roomHoldingStats={roomHoldingStats} roomId={roomId} roomName={room.name} tradeHistory={tradeHistory} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
+  return <DashboardShell debrief={debrief} debriefHistory={debriefHistory} durationMinutes={room.duration_minutes} endsAt={room.ends_at} finalCoachRecap={finalCoachRecap} isComplete={room.status === "complete"} isHost={room.created_by === user.id && membership.role === "host"} leaderboard={leaderboard} portfolio={portfolio} portfolioTrades={portfolioTrades} roomHoldingStats={roomHoldingStats} roomId={roomId} roomName={room.name} tradeHistory={tradeHistory} user={{ name: getDisplayName(user.user_metadata, user.email), email: user.email ?? "" }} />;
 }

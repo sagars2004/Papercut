@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     .eq("id", body.roomId)
     .maybeSingle();
   const room = roomData as Room | null;
-  if (!room || (room.status !== "active" && room.status !== "complete")) {
-    return NextResponse.json({ error: "A debrief is available after this room has started." }, { status: 400 });
+  if (!room || room.status !== "complete") {
+    return NextResponse.json({ error: "Your coach delivers the debrief once the challenge is complete." }, { status: 400 });
   }
 
   const [{ data: holdingData }, { data: priceData }, { data: tradeData }] = await Promise.all([

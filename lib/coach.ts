@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { CoachDebrief, CoachMetrics, CoachPattern, CoachPatternTone } from "@/lib/coach-types";
+import type { CoachDebrief, CoachFinalRecap, CoachMetrics, CoachPattern, CoachPatternTone } from "@/lib/coach-types";
 import type { PortfolioSummary } from "@/lib/portfolio";
 import type { PortfolioHistoryTrade } from "@/lib/portfolio-history";
 
@@ -11,9 +11,24 @@ type CoachInput = {
   trades: PortfolioHistoryTrade[];
 };
 
+type CoachRecapInput = {
+  debriefs: Array<{
+    date: string;
+    headline: string;
+    lesson: string;
+    patterns: CoachPattern[];
+    summary: string;
+  }>;
+  portfolio: PortfolioSummary;
+  roomName: string;
+  trades: PortfolioHistoryTrade[];
+};
+
 type JsonRecord = Record<string, unknown>;
 
 const COACH_INSTRUCTIONS = `You are Papercut's supportive coach for a paper crypto-trading game. Analyze only the supplied simulated portfolio and order data. Do not provide personalized financial advice, price predictions, or buy/sell recommendations. Be specific about observed behavior, educational, concise, and non-judgmental. Return only valid JSON with this exact shape: {"headline": string, "summary": string, "lesson": string, "patterns": [{"title": string, "detail": string, "tone": "positive" | "watch" | "neutral"}]}. Include at most three patterns. Do not include markdown or a reasoning trace.`;
+
+const FINAL_RECAP_INSTRUCTIONS = `You are Papercut's supportive coach for a completed paper crypto-trading game. Analyze only the supplied simulated trades, portfolio, and past debriefs. Do not provide personalized financial advice, price predictions, or buy/sell recommendations. Be specific about observed behavior, educational, concise, and non-judgmental. Return only valid JSON with this exact shape: {"headline": string, "summary": string, "tradingStyle": string, "strength": string, "growthArea": string, "nextChallenge": string}. The recap should synthesize behavior across the whole room, not give a real-time signal. Do not include markdown or a reasoning trace.`;
 
 const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-30b-a3b";
 const DEFAULT_NVIDIA_FALLBACK_MODEL = "meta/llama-3.1-8b-instruct";
@@ -293,6 +308,149 @@ export async function generateCoachDebrief(input: CoachInput): Promise<CoachDebr
     for (const model of configuredNvidiaModels()) {
       const nvidiaDebrief = await requestNvidiaDebrief({ apiKey: nvidiaApiKey, fallback, model, prompt });
       if (nvidiaDebrief) return nvidiaDebrief;
+    }
+  }
+
+  return fallback;
+}
+
+export function buildFallbackCoachFinalRecap(input: CoachRecapInput): CoachFinalRecap {
+  const metrics = buildCoachMetrics({ portfolio: input.portfolio, trades: input.trades });
+  const titles = input.debriefs.flatMap((debrief) => debrief.patterns.map((pattern) => pattern.title.toLowerCase()));
+  const hasConcentration = titles.some((title) => title.includes("concentration")) || (metrics.largestHoldingPercent ?? 0) >= 55;
+  const hasExitDiscipline = titles.some((title) => title.includes("exit")) || metrics.sellCount > 0;
+  const hasRepeatActivity = titles.some((title) => title.includes("repeated")) || metrics.tradeCount >= 5;
+
+  if (metrics.tradeCount === 0) {
+    return {
+      growthArea: "The record has no executed trades yet, so there is not enough behavior to distinguish a repeatable process from a momentary opinion.",
+      headline: "Your trading personality: thoughtful observer.",
+      nextChallenge: "For your next room, write down one entry rule, one reason the idea would be invalidated, and a maximum position size before placing the first simulated order.",
+      source: "fallback",
+      strength: "You preserved the full starting balance and avoided impulsive exposure while you watched the market.",
+      summary: `You finished ${input.roomName} with no simulated orders. That is a useful baseline: the next challenge can focus on turning a market view into one documented, testable decision.`,
+      tradingStyle: "Deliberate observer",
+    };
+  }
+
+  const tradingStyle = hasRepeatActivity
+    ? "Active decision-maker"
+    : metrics.assetsTraded > 1
+      ? "Comparative explorer"
+      : "Focused position builder";
+  const pnlDirection = metrics.totalPnl >= 0 ? "above" : "below";
+  const strength = hasExitDiscipline
+    ? `You recorded both entries and exits, creating evidence you can compare with the rules you intended to follow.`
+    : `You kept the decision record compact enough to trace each ${metrics.assetsTraded === 1 ? "asset" : "asset idea"} back to its original entry.`;
+  const growthArea = hasConcentration
+    ? `${metrics.largestHoldingSymbol ?? "Your largest position"} represented ${Math.round(metrics.largestHoldingPercent ?? 0)}% of the portfolio, so one move dominated the result. Track whether that concentration was planned before the trade.`
+    : hasRepeatActivity
+      ? `You made ${metrics.tradeCount} orders across the room. The next learning edge is giving every additional order a distinct reason instead of reacting to the last price move.`
+      : `You explored ${metrics.assetsTraded} ${metrics.assetsTraded === 1 ? "asset" : "assets"} without a single position dominating the record. The next learning edge is documenting why each entry exists and when it should be reconsidered.`;
+
+  return {
+    growthArea,
+    headline: `Your trading personality: ${tradingStyle.toLowerCase()}.`,
+    nextChallenge: hasConcentration
+      ? "Before the next challenge, set a maximum allocation for any one asset and record the reason for exceeding it before you do."
+      : hasExitDiscipline
+        ? "For the next challenge, write an entry rule and an exit rule for every position before the first fill."
+        : "For the next challenge, pair each entry with a clear invalidation point or time limit so the exit is planned as deliberately as the buy.",
+    source: "fallback",
+    strength,
+    summary: `Across ${metrics.tradeCount} ${metrics.tradeCount === 1 ? "simulated order" : "simulated orders"}, your final portfolio finished ${formatUsd(Math.abs(metrics.totalPnl))} ${pnlDirection} the ${formatUsd(input.portfolio.startingCapital)} start. The useful takeaway is the process behind those decisions, not the final mark alone.`,
+    tradingStyle,
+  };
+}
+
+function buildFinalCoachRecapPrompt(input: CoachRecapInput) {
+  const metrics = buildCoachMetrics({ portfolio: input.portfolio, trades: input.trades });
+  return {
+    finalPortfolio: {
+      cashBalance: input.portfolio.cashBalance,
+      holdings: input.portfolio.holdings.map((holding) => ({
+        marketValue: holding.marketValue,
+        percentOfPortfolio: holding.percentOfPortfolio,
+        quantity: holding.quantity,
+        symbol: holding.symbol,
+        unrealizedPnl: holding.unrealizedPnl,
+      })),
+      startingCapital: input.portfolio.startingCapital,
+      totalPnl: input.portfolio.totalPnl,
+      totalValue: input.portfolio.totalValue,
+    },
+    metrics,
+    roomName: input.roomName,
+    savedDebriefs: input.debriefs.slice(0, 14).map((debrief) => ({
+      date: debrief.date,
+      headline: debrief.headline,
+      lesson: debrief.lesson,
+      patterns: debrief.patterns,
+      summary: debrief.summary,
+    })),
+    trades: input.trades.slice(0, 200).map((trade) => ({
+      action: trade.action,
+      asset: trade.assetSymbol,
+      executedAt: trade.executedAt,
+      price: trade.price,
+      quantity: trade.quantity,
+    })),
+  };
+}
+
+function normalizeModelFinalRecap(value: JsonRecord, fallback: CoachFinalRecap, model: string): CoachFinalRecap {
+  return {
+    growthArea: cleanText(value.growthArea, fallback.growthArea, 360),
+    headline: cleanText(value.headline, fallback.headline, 130),
+    model,
+    nextChallenge: cleanText(value.nextChallenge, fallback.nextChallenge, 360),
+    source: "nvidia",
+    strength: cleanText(value.strength, fallback.strength, 360),
+    summary: cleanText(value.summary, fallback.summary, 520),
+    tradingStyle: cleanText(value.tradingStyle, fallback.tradingStyle, 90),
+  };
+}
+
+async function requestNvidiaFinalRecap({ apiKey, fallback, model, prompt }: { apiKey: string; fallback: CoachFinalRecap; model: string; prompt: ReturnType<typeof buildFinalCoachRecapPrompt> }) {
+  try {
+    const response = await fetch(nvidiaChatCompletionsUrl(), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        max_tokens: 800,
+        messages: [
+          { content: FINAL_RECAP_INSTRUCTIONS, role: "system" },
+          { content: JSON.stringify(prompt), role: "user" },
+        ],
+        model,
+        stream: false,
+        temperature: 0.2,
+        top_p: 0.7,
+      }),
+    });
+    if (!response.ok) return null;
+
+    const modelResponse = await response.json() as unknown;
+    const text = extractChatCompletionText(modelResponse);
+    const parsed = text ? parseJsonObject(text) : null;
+    return parsed ? normalizeModelFinalRecap(parsed, fallback, model) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateCoachFinalRecap(input: CoachRecapInput): Promise<CoachFinalRecap> {
+  const fallback = buildFallbackCoachFinalRecap(input);
+  const prompt = buildFinalCoachRecapPrompt(input);
+  const nvidiaApiKey = process.env.NVIDIA_API_KEY?.trim();
+  if (nvidiaApiKey) {
+    for (const model of configuredNvidiaModels()) {
+      const nvidiaRecap = await requestNvidiaFinalRecap({ apiKey: nvidiaApiKey, fallback, model, prompt });
+      if (nvidiaRecap) return nvidiaRecap;
     }
   }
 

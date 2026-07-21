@@ -30,3 +30,20 @@ export type CoachDebrief = {
   source: "fallback" | "nvidia";
   summary: string;
 };
+
+export type CoachDebriefHistoryItem = {
+  date: string;
+  debrief: CoachDebrief;
+};
+
+export type CoachFinalRecap = {
+  createdAt?: string;
+  growthArea: string;
+  headline: string;
+  model?: string;
+  nextChallenge: string;
+  source: "fallback" | "nvidia";
+  strength: string;
+  summary: string;
+  tradingStyle: string;
+};

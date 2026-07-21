@@ -8,6 +8,7 @@ import {
   CircleDollarSign,
   Clock3,
   Lightbulb,
+  LockKeyhole,
   Menu,
   Medal,
   RefreshCw,
@@ -39,7 +40,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/auth";
-import type { CoachDebrief } from "@/lib/coach-types";
+import type { CoachDebrief, CoachDebriefHistoryItem, CoachFinalRecap } from "@/lib/coach-types";
 import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
 import type { PortfolioSummary } from "@/lib/portfolio";
 import { buildTransactionAwarePortfolioHistory, type PortfolioAssetPriceHistory, type PortfolioHistoryTrade } from "@/lib/portfolio-history";
@@ -566,13 +567,20 @@ function TradeHistoryPanel({ entries }: { entries: TradeHistoryEntry[] }) {
   return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-7"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Your activity</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Your trade history.</h1><p className="mt-2 text-sm text-white/40">Only orders you have executed, newest first.</p>{entries.length === 0 ? <div className="mt-8 rounded-xl border border-dashed border-white/10 px-5 py-12 text-center text-sm text-white/35">You have not placed any trades yet.</div> : <div className="mt-8 overflow-hidden rounded-xl border border-white/[0.08]"><div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-4 border-b border-white/[0.08] bg-black/10 px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30"><span>Trade</span><span className="text-right">Price</span><span className="text-right">When</span></div>{entries.map((entry, index) => <div key={entry.executedAt + entry.assetSymbol + index} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 border-b border-white/[0.07] px-4 py-4 last:border-b-0"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white/80"><span className={entry.action === "buy" ? "text-[#c4ff0d]" : "text-[#ff9b9b]"}>{entry.action.toUpperCase()}</span> {entry.assetSymbol}</span><span className="mt-1 block text-[10px] text-white/35">{entry.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {entry.assetSymbol}</span></span><span className="text-right text-xs text-white/70">{formatUsd(entry.price)}</span><span className="text-right text-[10px] text-white/35">{new Date(entry.executedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</div>}</section>;
 }
 
-function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrief: CoachDebrief | null; isComplete: boolean; roomId: string; tradeCount: number }) {
+function CoachDebriefPanel({ debrief, debriefHistory, finalCoachRecap, isComplete, roomId, tradeCount }: { debrief: CoachDebrief | null; debriefHistory: CoachDebriefHistoryItem[]; finalCoachRecap: CoachFinalRecap | null; isComplete: boolean; roomId: string; tradeCount: number }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingRecap, setIsGeneratingRecap] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("All");
+
+  const historyTags = useMemo(() => ["All", ...Array.from(new Set(debriefHistory.flatMap((item) => item.debrief.patterns.map((pattern) => pattern.title)))).slice(0, 7)], [debriefHistory]);
+  const visibleDebriefs = historyFilter === "All"
+    ? debriefHistory
+    : debriefHistory.filter((item) => item.debrief.patterns.some((pattern) => pattern.title === historyFilter));
 
   async function generateDebrief() {
-    if (isGenerating) return;
+    if (!isComplete || isGenerating) return;
     setError("");
     setIsGenerating(true);
     try {
@@ -583,11 +591,31 @@ function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrie
       });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "We could not generate your debrief.");
-      setIsGenerating(false);
       router.refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "We could not generate your debrief.");
+    } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function generateFinalRecap() {
+    if (!isComplete || isGeneratingRecap) return;
+    setError("");
+    setIsGeneratingRecap(true);
+    try {
+      const response = await fetch("/api/debriefs/recap", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "We could not generate your final recap.");
+      router.refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "We could not generate your final recap.");
+    } finally {
+      setIsGeneratingRecap(false);
     }
   }
 
@@ -598,24 +626,28 @@ function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrie
       ? "border-[#ffcf7f]/20 bg-[#ffcf7f]/[0.055]"
       : "border-white/[0.09] bg-white/[0.03]";
 
+  if (!isComplete) {
+    return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-[linear-gradient(135deg,rgba(196,255,13,0.06),rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.02))] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.15)] sm:p-7"><div className="flex size-11 items-center justify-center rounded-xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.08] text-[#c4ff0d]"><LockKeyhole className="size-5" /></div><p className="mt-6 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]"><Sparkles className="size-3.5" /> Paper-trading coach</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">The coach is observing quietly.</h1><p className="mt-3 max-w-[650px] text-sm leading-6 text-white/45">Your orders are being recorded, but Papercut deliberately withholds analysis while the challenge is live. That keeps the competition fair and prevents real-time hints from shaping the next trade.</p><div className="mt-7 inline-flex items-center gap-2 rounded-xl border border-white/[0.08] bg-black/10 px-3 py-2 text-xs text-white/45"><Clock3 className="size-3.5 text-[#c4ff0d]" /> Your private debrief and personality recap unlock when the room closes.</div></section>;
+  }
+
   return (
     <section className="mx-auto max-w-[980px] rounded-2xl border border-[#c4ff0d]/20 bg-[linear-gradient(135deg,rgba(196,255,13,0.08),rgba(255,255,255,0.025)_38%,rgba(255,255,255,0.02))] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.15)] sm:p-7">
       <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
         <div>
           <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]"><Sparkles className="size-3.5" /> Paper-trading coach</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">{isComplete ? "Your final debrief." : "Your daily debrief."}</h1>
-          <p className="mt-2 max-w-[620px] text-sm leading-6 text-white/45">A private reflection built from your own simulated orders, holdings, and current room value. It is educational, not financial advice.</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Your final debrief.</h1>
+          <p className="mt-2 max-w-[620px] text-sm leading-6 text-white/45">A private reflection built from your own simulated orders, saved lessons, and final room value. It is educational, not financial advice.</p>
         </div>
-        <Button type="button" onClick={generateDebrief} disabled={isGenerating} className="h-10 shrink-0 rounded-xl bg-[#c4ff0d] px-4 text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62] disabled:opacity-60">
-          <Sparkles className="mr-2 size-3.5" />
-          {isGenerating ? "Reviewing trades…" : debrief ? "Refresh debrief" : "Generate debrief"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={generateDebrief} disabled={isGenerating} className="h-10 rounded-xl bg-[#c4ff0d] px-4 text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62] disabled:opacity-60"><Sparkles className="mr-2 size-3.5" />{isGenerating ? "Reviewing trades…" : debrief ? "Refresh debrief" : "Generate debrief"}</Button>
+          <Button type="button" onClick={generateFinalRecap} disabled={isGeneratingRecap} variant="outline" className="h-10 rounded-xl border-white/15 bg-white/[0.04] px-4 text-xs font-semibold text-white/75 hover:bg-white/[0.09] hover:text-white disabled:opacity-60"><Medal className="mr-2 size-3.5 text-[#c4ff0d]" />{isGeneratingRecap ? "Building recap…" : finalCoachRecap ? "Refresh recap" : "Build personality recap"}</Button>
+        </div>
       </div>
 
-      {!debrief ? <div className="mt-8 rounded-2xl border border-dashed border-[#c4ff0d]/25 bg-black/10 px-5 py-8"><p className="text-lg font-medium tracking-[-0.04em] text-white/85">Your coach is ready when you are.</p><p className="mt-2 max-w-[620px] text-sm leading-6 text-white/40">Generate a reflection from {tradeCount} {tradeCount === 1 ? "recorded order" : "recorded orders"}. You can refresh it later as your paper portfolio changes.</p></div> : <>
+      {!debrief ? <div className="mt-8 rounded-2xl border border-dashed border-[#c4ff0d]/25 bg-black/10 px-5 py-8"><p className="text-lg font-medium tracking-[-0.04em] text-white/85">Your coach is ready to review the full challenge.</p><p className="mt-2 max-w-[620px] text-sm leading-6 text-white/40">Generate a final reflection from {tradeCount} {tradeCount === 1 ? "recorded order" : "recorded orders"}. It will stay private to this account.</p></div> : <>
         <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
           <div className="rounded-2xl border border-white/[0.09] bg-black/10 p-5 sm:p-6">
-            <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-white/35"><span className="rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/10 px-2 py-1 font-semibold text-[#c4ff0d]">{debrief.source === "nvidia" ? "NVIDIA NIM coach" : "Coach preview"}</span>{debrief.source === "nvidia" && debrief.model ? <span className="max-w-full truncate normal-case tracking-normal text-white/45">{debrief.model}</span> : null}{generatedAt ? <span>Updated {generatedAt}</span> : null}</div>
+            <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-white/35"><span className="rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/10 px-2 py-1 font-semibold text-[#c4ff0d]">{debrief.source === "nvidia" ? "GPT-5.6 coach" : "Coach preview"}</span>{debrief.source === "nvidia" && debrief.model ? <span className="max-w-full truncate normal-case tracking-normal text-white/45">{debrief.model}</span> : null}{generatedAt ? <span>Updated {generatedAt}</span> : null}</div>
             <h2 className="mt-5 text-2xl font-semibold leading-tight tracking-[-0.055em] text-white/95">{debrief.headline}</h2>
             <p className="mt-4 text-sm leading-6 text-white/50">{debrief.summary}</p>
             <div className="mt-6 rounded-xl border border-[#c4ff0d]/16 bg-[#c4ff0d]/[0.055] p-4"><p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]"><Lightbulb className="size-3.5" /> Lesson to carry forward</p><p className="mt-3 text-sm leading-6 text-white/75">{debrief.lesson}</p></div>
@@ -628,6 +660,10 @@ function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrie
         </div>
         {debrief.patterns.length > 0 ? <div className="mt-5 grid gap-3 md:grid-cols-3">{debrief.patterns.map((pattern, index) => <div key={pattern.title + index} className={"rounded-xl border p-4 " + toneClass(pattern.tone)}><p className={pattern.tone === "positive" ? "text-xs font-semibold text-[#c4ff0d]" : pattern.tone === "watch" ? "text-xs font-semibold text-[#ffcf7f]" : "text-xs font-semibold text-white/75"}>{pattern.title}</p><p className="mt-2 text-[11px] leading-5 text-white/45">{pattern.detail}</p></div>)}</div> : null}
       </>}
+
+      {finalCoachRecap ? <section className="mt-8 rounded-2xl border border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.055] p-5 sm:p-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]"><Medal className="size-3.5" /> End-of-challenge synthesis</p><h2 className="mt-3 text-2xl font-semibold tracking-[-0.055em] text-white">{finalCoachRecap.headline}</h2><p className="mt-3 max-w-[680px] text-sm leading-6 text-white/55">{finalCoachRecap.summary}</p></div><span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-[10px] font-medium text-white/45">{finalCoachRecap.source === "nvidia" ? "GPT-5.6" : "Coach preview"}</span></div><div className="mt-6 grid gap-3 md:grid-cols-3"><div className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Trading style</p><p className="mt-2 text-sm font-semibold text-white/85">{finalCoachRecap.tradingStyle}</p></div><div className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Strength</p><p className="mt-2 text-xs leading-5 text-white/60">{finalCoachRecap.strength}</p></div><div className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Growth edge</p><p className="mt-2 text-xs leading-5 text-white/60">{finalCoachRecap.growthArea}</p></div></div><div className="mt-4 rounded-xl border border-[#c4ff0d]/16 bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]">Next challenge</p><p className="mt-2 text-sm leading-6 text-white/75">{finalCoachRecap.nextChallenge}</p></div></section> : null}
+
+      {debriefHistory.length > 0 ? <section className="mt-8 border-t border-white/[0.09] pt-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Coach history</p><h2 className="mt-2 text-xl font-semibold tracking-[-0.045em] text-white">Past lessons from this room.</h2></div><p className="text-xs text-white/35">{debriefHistory.length} {debriefHistory.length === 1 ? "saved debrief" : "saved debriefs"}</p></div><div className="mt-4 flex flex-wrap gap-2">{historyTags.map((tag) => <button key={tag} type="button" onClick={() => setHistoryFilter(tag)} className={historyFilter === tag ? "rounded-full border border-[#c4ff0d]/30 bg-[#c4ff0d]/10 px-3 py-1.5 text-[10px] font-semibold text-[#c4ff0d]" : "rounded-full border border-white/[0.09] bg-black/10 px-3 py-1.5 text-[10px] font-medium text-white/45 hover:border-white/20 hover:text-white"}>{tag}</button>)}</div><div className="mt-5 grid gap-3 md:grid-cols-2">{visibleDebriefs.map((item) => <article key={item.date + item.debrief.createdAt} className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[10px] font-medium text-[#c4ff0d]">{new Date(item.date + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</p><h3 className="mt-3 text-sm font-semibold text-white/85">{item.debrief.headline}</h3><p className="mt-2 text-xs leading-5 text-white/45">{item.debrief.lesson}</p>{item.debrief.patterns.length > 0 ? <div className="mt-3 flex flex-wrap gap-1.5">{item.debrief.patterns.map((pattern) => <span key={pattern.title} className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] text-white/45">{pattern.title}</span>)}</div> : null}</article>)}</div>{visibleDebriefs.length === 0 ? <p className="mt-5 rounded-xl border border-dashed border-white/10 px-4 py-5 text-sm text-white/35">No saved debriefs match that pattern yet.</p> : null}</section> : null}
       {error ? <p role="alert" className="mt-4 rounded-lg border border-[#ff7f7f]/30 bg-[#ff7f7f]/10 px-3 py-2 text-xs text-[#ffb4b4]">{error}</p> : null}
     </section>
   );
@@ -635,8 +671,10 @@ function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrie
 
 type DashboardShellProps = {
   debrief: CoachDebrief | null;
+  debriefHistory: CoachDebriefHistoryItem[];
   durationMinutes: number;
   endsAt: string | null;
+  finalCoachRecap: CoachFinalRecap | null;
   isComplete: boolean;
   isHost: boolean;
   leaderboard: LeaderboardEntry[];
@@ -652,7 +690,7 @@ type DashboardShellProps = {
   };
 };
 
-export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, isHost, leaderboard, portfolio, portfolioTrades, roomHoldingStats, roomId, roomName, tradeHistory, user }: DashboardShellProps) {
+export function DashboardShell({ debrief, debriefHistory, durationMinutes, endsAt, finalCoachRecap, isComplete, isHost, leaderboard, portfolio, portfolioTrades, roomHoldingStats, roomId, roomName, tradeHistory, user }: DashboardShellProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
@@ -807,7 +845,7 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
-        {!challengeIsOver && displayedTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : displayedTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : displayedTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : displayedTab === "Feedback" ? <CoachDebriefPanel debrief={debrief} isComplete={challengeIsOver} roomId={roomId} tradeCount={portfolioTrades.length} /> : <>
+        {!challengeIsOver && displayedTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : displayedTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : displayedTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : displayedTab === "Feedback" ? <CoachDebriefPanel debrief={debrief} debriefHistory={debriefHistory} finalCoachRecap={finalCoachRecap} isComplete={challengeIsOver} roomId={roomId} tradeCount={portfolioTrades.length} /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
@@ -1009,17 +1047,17 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
 
           <section className="rounded-2xl border border-[#c4ff0d]/15 bg-[#c4ff0d]/[0.045] p-5 sm:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-white/45"><Lightbulb className="size-4 text-[#c4ff0d]" /> {challengeIsOver ? "Final coach debrief" : "Today's coach debrief"}</div>
+              <div className="flex items-center gap-2 text-xs text-white/45">{challengeIsOver ? <Lightbulb className="size-4 text-[#c4ff0d]" /> : <LockKeyhole className="size-4 text-[#c4ff0d]" />} {challengeIsOver ? "Final coach debrief" : "Coach is observing"}</div>
               <Sparkles className="size-4 text-[#c4ff0d]/60" />
             </div>
             <p className="mt-6 max-w-[440px] text-xl font-medium leading-tight tracking-[-0.045em] text-white/90">
-              {debrief?.headline ?? "Your coach is ready to review the decisions behind your trades."}
+              {challengeIsOver ? debrief?.headline ?? "Your coach is ready to review the decisions behind your trades." : "Your coach is watching the process, not the price."}
             </p>
             <p className="mt-4 max-w-[460px] text-xs leading-5 text-white/40">
-              {debrief?.summary ?? "Generate a private reflection based on your simulated orders, holdings, and current portfolio value."}
+              {challengeIsOver ? debrief?.summary ?? "Generate a private reflection based on your simulated orders, holdings, and current portfolio value." : "Private feedback stays locked until the challenge closes, so no real-time coaching can influence the next order."}
             </p>
             <button type="button" onClick={() => setActiveTab("Feedback")} className="mt-5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d] hover:text-white">
-              {debrief ? "Open debrief" : "Generate debrief"} <ChevronRight className="size-3.5" />
+              {challengeIsOver ? (debrief ? "Open debrief" : "Generate debrief") : "See coach status"} <ChevronRight className="size-3.5" />
             </button>
           </section>
         </div>
@@ -1031,7 +1069,7 @@ export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, i
           <div className="flex size-11 items-center justify-center rounded-xl bg-[#c4ff0d]/12 text-[#c4ff0d]"><Clock3 className="size-5" /></div>
           <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Challenge complete</p>
           <h2 id="challenge-time-up-title" className="mt-2 text-2xl font-semibold tracking-[-0.055em] text-white">Time&apos;s up.</h2>
-          <p className="mt-3 text-sm leading-6 text-white/55">Trading is now closed for everyone in {roomName}. Your final portfolio, rank, history, and coach debrief are ready to review.</p>
+          <p className="mt-3 text-sm leading-6 text-white/55">Trading is now closed for everyone in {roomName}. Your final portfolio, rank, history, and private coach debrief are ready to review.</p>
           <Button type="button" onClick={() => setHasDismissedTimeUpNotice(true)} className="mt-6 h-10 w-full rounded-xl bg-[#c4ff0d] text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62]">Review final results</Button>
         </motion.div>
       </div> : null}
