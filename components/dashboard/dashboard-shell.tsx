@@ -44,13 +44,6 @@ import { formatRoomDuration } from "@/lib/rooms";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
 
-const holdingStats = [
-  { symbol: "BTC", name: "Bitcoin", percent: 84, color: "#f7931a" },
-  { symbol: "ETH", name: "Ethereum", percent: 72, color: "#9ba4ff" },
-  { symbol: "SOL", name: "Solana", percent: 61, color: "#a8ffcf" },
-  { symbol: "LINK", name: "Chainlink", percent: 38, color: "#5e8cff" },
-];
-
 const ticker = [
   ["BTC", "$65,942.20", "+2.41%"],
   ["ETH", "$3,218.74", "+1.84%"],
@@ -64,6 +57,31 @@ const ticker = [
 type LiveMarketAsset = MarketAsset & {
   price: number | null;
   change24h: number | null;
+};
+
+type LeaderboardEntry = {
+  isCurrentUser: boolean;
+  name: string;
+  rank: number;
+  totalPnl: number;
+  totalValue: number;
+  userId: string;
+};
+
+type RoomHoldingStat = {
+  color: string;
+  name: string;
+  percent: number;
+  symbol: string;
+};
+
+type TradeHistoryEntry = {
+  action: "buy" | "sell";
+  assetSymbol: string;
+  executedAt: string;
+  playerName: string;
+  price: number;
+  quantity: number;
 };
 
 function formatUsd(value: number | null) {
@@ -355,20 +373,32 @@ function TradePanel({ portfolio, roomId }: { portfolio: PortfolioSummary; roomId
   );
 }
 
+function LeaderboardPanel({ entries }: { entries: LeaderboardEntry[] }) {
+  return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-7"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Live room ranking</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">The board updates with every trade.</h1><p className="mt-2 text-sm text-white/40">Rank is based on cash plus the latest market value of every open position.</p></div><Medal className="size-8 text-[#c4ff0d]/70" /></div><div className="mt-8 overflow-hidden rounded-xl border border-white/[0.08]"><div className="grid grid-cols-[50px_minmax(0,1fr)_auto] gap-4 border-b border-white/[0.08] bg-black/10 px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30"><span>Rank</span><span>Trader</span><span className="text-right">Portfolio</span></div>{entries.map((entry) => <div key={entry.userId} className={entry.isCurrentUser ? "grid grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-4 border-b border-[#c4ff0d]/15 bg-[#c4ff0d]/[0.07] px-4 py-4 last:border-b-0" : "grid grid-cols-[50px_minmax(0,1fr)_auto] items-center gap-4 border-b border-white/[0.07] px-4 py-4 last:border-b-0"}><span className={entry.rank === 1 ? "text-xl font-semibold tracking-[-0.06em] text-[#c4ff0d]" : "text-lg font-semibold text-white/65"}>#{entry.rank}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white/80">{entry.name}{entry.isCurrentUser ? <span className="ml-2 text-[10px] font-medium text-[#c4ff0d]">YOU</span> : null}</span><span className={entry.totalPnl >= 0 ? "mt-1 block text-[10px] text-[#c4ff0d]" : "mt-1 block text-[10px] text-[#ff7f7f]"}>{entry.totalPnl >= 0 ? "+" : ""}{formatUsd(entry.totalPnl)} all time</span></span><span className="text-right text-sm font-semibold text-white">{formatUsd(entry.totalValue)}</span></div>)}</div></section>;
+}
+
+function TradeHistoryPanel({ entries }: { entries: TradeHistoryEntry[] }) {
+  return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-7"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Room activity</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Trade history.</h1><p className="mt-2 text-sm text-white/40">Every executed order in this room, newest first.</p>{entries.length === 0 ? <div className="mt-8 rounded-xl border border-dashed border-white/10 px-5 py-12 text-center text-sm text-white/35">No trades have been placed yet.</div> : <div className="mt-8 overflow-hidden rounded-xl border border-white/[0.08]"><div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-4 border-b border-white/[0.08] bg-black/10 px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30"><span>Trade</span><span className="text-right">Price</span><span className="text-right">When</span></div>{entries.map((entry, index) => <div key={entry.executedAt + entry.playerName + index} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 border-b border-white/[0.07] px-4 py-4 last:border-b-0"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white/80">{entry.playerName} <span className={entry.action === "buy" ? "text-[#c4ff0d]" : "text-[#ff9b9b]"}>{entry.action.toUpperCase()}</span> {entry.assetSymbol}</span><span className="mt-1 block text-[10px] text-white/35">{entry.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {entry.assetSymbol}</span></span><span className="text-right text-xs text-white/70">{formatUsd(entry.price)}</span><span className="text-right text-[10px] text-white/35">{new Date(entry.executedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</div>}</section>;
+}
+
 type DashboardShellProps = {
   durationMinutes: number;
   endsAt: string | null;
   isHost: boolean;
+  leaderboard: LeaderboardEntry[];
   portfolio: PortfolioSummary;
+  roomHoldingStats: RoomHoldingStat[];
   roomId: string;
   roomName: string;
+  tradeHistory: TradeHistoryEntry[];
   user: {
     name: string;
     email: string;
   };
 };
 
-export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roomId, roomName, user }: DashboardShellProps) {
+export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, portfolio, roomHoldingStats, roomId, roomName, tradeHistory, user }: DashboardShellProps) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationMinutes * 60);
@@ -379,6 +409,7 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roo
     { time: "Now", value: portfolio.totalValue },
   ];
   const pnlClass = portfolio.totalPnl >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]";
+  const currentRank = leaderboard.find((entry) => entry.isCurrentUser);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -387,6 +418,16 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roo
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const refresh = () => router.refresh();
+    const interval = window.setInterval(refresh, 4000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [router]);
 
   async function endChallenge() {
     setIsEndingChallenge(true);
@@ -478,7 +519,7 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roo
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
-        {activeTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : <>
+        {activeTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : activeTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : activeTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
@@ -557,15 +598,15 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roo
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs text-white/45"><Medal className="size-4 text-[#c4ff0d]" /> Your Rank</div>
-                <span className="rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]">Top 25%</span>
+                <span className="rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]">Live</span>
               </div>
               <div className="mt-5 flex items-end gap-3">
-                <span className="text-6xl font-semibold tracking-[-0.08em] text-[#c4ff0d]">#02</span>
-                <span className="mb-2 text-xs text-white/40">out of 08 traders</span>
+                <span className="text-6xl font-semibold tracking-[-0.08em] text-[#c4ff0d]">#{currentRank?.rank ?? "—"}</span>
+                <span className="mb-2 text-xs text-white/40">out of {leaderboard.length} trader{leaderboard.length === 1 ? "" : "s"}</span>
               </div>
               <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-xs">
-                <span className="text-white/35">You climbed</span>
-                <span className="flex items-center gap-1 font-semibold text-[#c4ff0d]"><TrendingUp className="size-3.5" /> 3 spots today</span>
+                <span className="text-white/35">Portfolio value</span>
+                <span className={portfolio.totalPnl >= 0 ? "flex items-center gap-1 font-semibold text-[#c4ff0d]" : "flex items-center gap-1 font-semibold text-[#ff9b9b]"}><TrendingUp className="size-3.5" /> {formatUsd(portfolio.totalValue)}</span>
               </div>
             </motion.section>
 
@@ -580,11 +621,11 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, portfolio, roo
                 <button type="button" className="text-white/25 transition-colors hover:text-[#c4ff0d]" aria-label="View holding details"><ChevronRight className="size-4" /></button>
               </div>
               <div className="mt-5 space-y-4">
-                {holdingStats.map((asset) => (
+                {roomHoldingStats.length === 0 ? <p className="text-xs text-white/35">No one is holding crypto yet.</p> : roomHoldingStats.map((asset) => (
                   <div key={asset.symbol}>
                     <div className="mb-1.5 flex items-center justify-between text-[10px]">
                       <span className="font-semibold text-white/70">{asset.symbol}<span className="ml-1.5 font-normal text-white/30">{asset.name}</span></span>
-                      <span className="text-white/45">{asset.percent}%</span>
+                      <span className="text-white/45">{asset.percent.toFixed(0)}%</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-white/[0.08]">
                       <div className="h-full rounded-full" style={{ width: asset.percent + "%", backgroundColor: asset.color }} />
