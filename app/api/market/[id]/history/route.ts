@@ -29,7 +29,13 @@ export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
   const asset = MARKET_ASSETS.find((candidate) => candidate.symbol === id.toUpperCase());
   const range = new URL(request.url).searchParams.get("range") ?? "24h";
-  const rangeMs = range === "1h" ? 60 * 60 * 1000 : range === "6h" ? 6 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const rangeMs = range === "1h"
+    ? 60 * 60 * 1000
+    : range === "6h"
+      ? 6 * 60 * 60 * 1000
+      : range === "1w"
+        ? 7 * 24 * 60 * 60 * 1000
+        : 24 * 60 * 60 * 1000;
 
   if (!asset) {
     return NextResponse.json({ error: "Asset is not supported." }, { status: 404 });
@@ -39,7 +45,7 @@ export async function GET(request: Request, context: RouteContext) {
   if (coinGeckoKey) {
     const url = new URL("https://api.coingecko.com/api/v3/coins/" + asset.id + "/ohlc");
     url.searchParams.set("vs_currency", "usd");
-    url.searchParams.set("days", "1");
+    url.searchParams.set("days", range === "1w" ? "7" : "1");
 
     try {
       const response = await fetch(url, {
@@ -71,7 +77,9 @@ export async function GET(request: Request, context: RouteContext) {
     ? { count: "12", interval: "5m" }
     : range === "6h"
       ? { count: "36", interval: "10m" }
-      : { count: "24", interval: "1h" };
+      : range === "1w"
+        ? { count: "7", interval: "1d" }
+        : { count: "24", interval: "1h" };
   url.searchParams.set("symbol", asset.symbol);
   url.searchParams.set("convert", "USD");
   url.searchParams.set("count", window.count);

@@ -59,12 +59,12 @@ create table if not exists public.debriefs (
   pattern_flags_json jsonb not null default '[]'::jsonb,
   lesson_text text not null,
   created_at timestamptz not null default now(),
-  unique (player_id, debrief_date)
+  constraint debriefs_player_room_debrief_date_key unique (player_id, room_id, debrief_date)
 );
 
 create index if not exists trades_player_executed_idx on public.trades(player_id, executed_at desc);
 create index if not exists price_snapshots_asset_captured_idx on public.price_snapshots(asset_symbol, captured_at desc);
-create index if not exists debriefs_player_date_idx on public.debriefs(player_id, debrief_date desc);
+create index if not exists debriefs_player_room_date_idx on public.debriefs(player_id, room_id, debrief_date desc);
 
 alter table public.rooms enable row level security;
 alter table public.players enable row level security;

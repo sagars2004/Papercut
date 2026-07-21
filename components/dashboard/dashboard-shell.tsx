@@ -10,6 +10,7 @@ import {
   Lightbulb,
   Menu,
   Medal,
+  RefreshCw,
   Search,
   Scissors,
   SlidersHorizontal,
@@ -20,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -38,21 +39,19 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/auth";
+import type { CoachDebrief } from "@/lib/coach-types";
 import { MARKET_ASSETS, type MarketAsset } from "@/lib/market-assets";
 import type { PortfolioSummary } from "@/lib/portfolio";
+import { buildTransactionAwarePortfolioHistory, type PortfolioAssetPriceHistory, type PortfolioHistoryTrade } from "@/lib/portfolio-history";
 import { formatRoomDuration } from "@/lib/rooms";
 
 const tabs = ["Dashboard", "Trade", "Leaderboard", "History", "Feedback"];
 
-const ticker = [
-  ["BTC", "$65,942.20", "+2.41%"],
-  ["ETH", "$3,218.74", "+1.84%"],
-  ["SOL", "$177.92", "+4.62%"],
-  ["LINK", "$18.42", "-0.62%"],
-  ["AVAX", "$36.09", "+3.18%"],
-  ["DOGE", "$0.14", "+0.88%"],
-  ["AAVE", "$112.60", "-1.04%"],
-];
+const portfolioRanges = [
+  { label: "1H", value: "1h" },
+  { label: "24H", value: "24h" },
+  { label: "1W", value: "1w" },
+] as const;
 
 type LiveMarketAsset = MarketAsset & {
   price: number | null;
@@ -75,14 +74,7 @@ type RoomHoldingStat = {
   symbol: string;
 };
 
-type TradeHistoryEntry = {
-  action: "buy" | "sell";
-  assetSymbol: string;
-  executedAt: string;
-  playerName: string;
-  price: number;
-  quantity: number;
-};
+type TradeHistoryEntry = PortfolioHistoryTrade;
 
 function formatUsd(value: number | null) {
   if (value === null) return "Loading…";
@@ -119,7 +111,56 @@ function AssetMark({ symbol, color }: { symbol: string; color: string }) {
   );
 }
 
+function LiveTickerFeed() {
+  const [assets, setAssets] = useState<LiveMarketAsset[]>(() =>
+    MARKET_ASSETS.map((asset) => ({ ...asset, price: null, change24h: null })),
+  );
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function refreshTicker() {
+      try {
+        const response = await fetch("/api/market", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json() as { assets?: LiveMarketAsset[] };
+        if (isCurrent && data.assets) setAssets(data.assets);
+      } catch {
+        // Keep the last successful quote visible if a provider refresh fails.
+      }
+    }
+
+    void refreshTicker();
+    const interval = window.setInterval(refreshTicker, 60_000);
+    return () => {
+      isCurrent = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const marqueeAssets = [...assets, ...assets];
+
+  return (
+    <div className="min-w-0 flex-1 overflow-hidden" aria-label="Live cryptocurrency prices">
+      <motion.div
+        className="flex w-max items-center gap-7 pr-7 will-change-transform"
+        animate={{ x: ["0%", "-50%"] }}
+        transition={{ duration: 36, ease: "linear", repeat: Infinity }}
+      >
+        {marqueeAssets.map((asset, index) => (
+          <div key={asset.symbol + "-" + index} aria-hidden={index >= assets.length} className="flex items-center gap-2 whitespace-nowrap text-[11px] text-white/50">
+            <span className="font-semibold text-white/80">{asset.symbol}</span>
+            <span>{formatUsd(asset.price)}</span>
+            <span className={asset.change24h === null ? "text-white/35" : asset.change24h >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]"}>{formatChange(asset.change24h)}</span>
+          </div>
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
 type ChartMode = "line" | "area" | "candles";
+type PortfolioRange = (typeof portfolioRanges)[number]["value"];
 
 type CandlePoint = {
   time: number;
@@ -186,6 +227,137 @@ function SampledCandleChart({ candles }: { candles: CandlePoint[] }) {
         );
       })}
     </svg>
+  );
+}
+
+function portfolioRangeMs(range: PortfolioRange) {
+  return range === "1h" ? 60 * 60 * 1000 : range === "24h" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+}
+
+function formatHistoryTime(timestamp: number, range: PortfolioRange) {
+  const date = new Date(timestamp);
+  return range === "1w"
+    ? date.toLocaleDateString([], { month: "short", day: "numeric" })
+    : date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function PortfolioHistoryChart({ portfolio, range, trades }: { portfolio: PortfolioSummary; range: PortfolioRange; trades: PortfolioHistoryTrade[] }) {
+  const tradesKey = JSON.stringify(trades);
+  const currentPricesKey = JSON.stringify(
+    Object.fromEntries(
+      portfolio.holdings
+        .filter((holding) => holding.currentPrice !== null)
+        .map((holding) => [holding.symbol, holding.currentPrice]),
+    ),
+  );
+  const [history, setHistory] = useState<Array<{ time: number; value: number }>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let isCurrent = true;
+    const replayTrades = JSON.parse(tradesKey) as PortfolioHistoryTrade[];
+    const currentPrices = JSON.parse(currentPricesKey) as Record<string, number>;
+    const rangeMs = portfolioRangeMs(range);
+    const now = Date.now();
+    const symbols = Array.from(new Set(replayTrades.map((trade) => trade.assetSymbol)));
+
+    void Promise.resolve().then(() => {
+      if (!isCurrent) return;
+      setIsLoading(true);
+      setError("");
+    });
+
+    Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const response = await fetch("/api/market/" + symbol + "/history?range=" + range, { cache: "no-store" });
+          if (!response.ok) throw new Error("Price history unavailable");
+          const data = await response.json() as { prices?: Array<[number, number]> };
+          return {
+            prices: (data.prices ?? [])
+              .filter(([time, value]) => Number.isFinite(time) && Number.isFinite(value))
+              .map(([time, value]) => ({ time, value }))
+              .sort((left, right) => left.time - right.time),
+            symbol,
+            unavailable: false,
+          };
+        } catch {
+          return { prices: [], symbol, unavailable: true };
+        }
+      }),
+    )
+      .then((assetHistories) => {
+        if (!isCurrent) return;
+        const priceHistories: PortfolioAssetPriceHistory[] = assetHistories.map(({ prices, symbol }) => ({ prices, symbol }));
+        setHistory(buildTransactionAwarePortfolioHistory({
+          currentPrices,
+          endTime: now,
+          priceHistories,
+          startTime: now - rangeMs,
+          startingCapital: portfolio.startingCapital,
+          trades: replayTrades,
+        }));
+        if (assetHistories.some((assetHistory) => assetHistory.unavailable)) {
+          setError("Some historical quotes are unavailable; orders still replay at their execution price.");
+        }
+        setIsLoading(false);
+      })
+      .catch(() => {
+        if (!isCurrent) return;
+        setHistory(buildTransactionAwarePortfolioHistory({
+          currentPrices,
+          endTime: now,
+          priceHistories: [],
+          startTime: now - rangeMs,
+          startingCapital: portfolio.startingCapital,
+          trades: replayTrades,
+        }));
+        setError("Live price history is temporarily unavailable.");
+        setIsLoading(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [currentPricesKey, portfolio.startingCapital, range, tradesKey]);
+
+  const yDomain = useMemo(() => {
+    const values = history.map((point) => point.value);
+    if (values.length === 0) return [0, Math.max(portfolio.totalValue, 1)];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = min === max ? Math.max(Math.abs(max) * 0.002, 1) : (max - min) * 0.1;
+    return [Math.max(0, min - padding), max + padding];
+  }, [history, portfolio.totalValue]);
+
+  return (
+    <>
+      <div className="relative mt-8 h-[255px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={history} margin={{ top: 8, right: 10, left: 8, bottom: 6 }}>
+            <defs>
+              <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#c4ff0d" stopOpacity={0.26} />
+                <stop offset="100%" stopColor="#c4ff0d" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="rgba(255,255,255,0.07)" strokeDasharray="3 7" />
+            <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => formatHistoryTime(Number(value), range)} minTickGap={28} dy={8} />
+            <YAxis domain={yDomain} tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.32)", fontSize: 10 }} tickFormatter={(value) => formatUsd(Number(value))} width={78} />
+            <Tooltip
+              cursor={{ stroke: "rgba(196,255,13,0.25)" }}
+              contentStyle={{ background: "#0b1d13", border: "1px solid rgba(196,255,13,0.22)", borderRadius: 12, color: "#fff", fontSize: 11 }}
+              formatter={(value) => [formatUsd(Number(value)), "Portfolio value"]}
+              labelFormatter={(label) => formatHistoryTime(Number(label), range)}
+            />
+            <Area type="linear" dataKey="value" stroke="#c4ff0d" strokeWidth={2.5} fill="url(#portfolioGradient)" dot={false} activeDot={{ r: 4, fill: "#c4ff0d", stroke: "#07110c", strokeWidth: 2 }} />
+          </AreaChart>
+        </ResponsiveContainer>
+        {isLoading ? <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-white/40">Loading portfolio history…</p> : null}
+      </div>
+      <p className={error ? "mt-2 text-[10px] text-[#ffb4b4]" : "mt-2 text-[10px] text-white/25"}>{error || "Cash stays flat until an executed order, then positions replay against historical quotes."}</p>
+    </>
   );
 }
 
@@ -378,15 +550,85 @@ function LeaderboardPanel({ entries }: { entries: LeaderboardEntry[] }) {
 }
 
 function TradeHistoryPanel({ entries }: { entries: TradeHistoryEntry[] }) {
-  return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-7"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Room activity</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Trade history.</h1><p className="mt-2 text-sm text-white/40">Every executed order in this room, newest first.</p>{entries.length === 0 ? <div className="mt-8 rounded-xl border border-dashed border-white/10 px-5 py-12 text-center text-sm text-white/35">No trades have been placed yet.</div> : <div className="mt-8 overflow-hidden rounded-xl border border-white/[0.08]"><div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-4 border-b border-white/[0.08] bg-black/10 px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30"><span>Trade</span><span className="text-right">Price</span><span className="text-right">When</span></div>{entries.map((entry, index) => <div key={entry.executedAt + entry.playerName + index} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 border-b border-white/[0.07] px-4 py-4 last:border-b-0"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white/80">{entry.playerName} <span className={entry.action === "buy" ? "text-[#c4ff0d]" : "text-[#ff9b9b]"}>{entry.action.toUpperCase()}</span> {entry.assetSymbol}</span><span className="mt-1 block text-[10px] text-white/35">{entry.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {entry.assetSymbol}</span></span><span className="text-right text-xs text-white/70">{formatUsd(entry.price)}</span><span className="text-right text-[10px] text-white/35">{new Date(entry.executedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</div>}</section>;
+  return <section className="mx-auto max-w-[980px] rounded-2xl border border-white/[0.09] bg-white/[0.035] p-5 sm:p-7"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]">Your activity</p><h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">Your trade history.</h1><p className="mt-2 text-sm text-white/40">Only orders you have executed, newest first.</p>{entries.length === 0 ? <div className="mt-8 rounded-xl border border-dashed border-white/10 px-5 py-12 text-center text-sm text-white/35">You have not placed any trades yet.</div> : <div className="mt-8 overflow-hidden rounded-xl border border-white/[0.08]"><div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-4 border-b border-white/[0.08] bg-black/10 px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30"><span>Trade</span><span className="text-right">Price</span><span className="text-right">When</span></div>{entries.map((entry, index) => <div key={entry.executedAt + entry.assetSymbol + index} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 border-b border-white/[0.07] px-4 py-4 last:border-b-0"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-white/80"><span className={entry.action === "buy" ? "text-[#c4ff0d]" : "text-[#ff9b9b]"}>{entry.action.toUpperCase()}</span> {entry.assetSymbol}</span><span className="mt-1 block text-[10px] text-white/35">{entry.quantity.toLocaleString(undefined, { maximumFractionDigits: 6 })} {entry.assetSymbol}</span></span><span className="text-right text-xs text-white/70">{formatUsd(entry.price)}</span><span className="text-right text-[10px] text-white/35">{new Date(entry.executedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>)}</div>}</section>;
+}
+
+function CoachDebriefPanel({ debrief, isComplete, roomId, tradeCount }: { debrief: CoachDebrief | null; isComplete: boolean; roomId: string; tradeCount: number }) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  async function generateDebrief() {
+    if (isGenerating) return;
+    setError("");
+    setIsGenerating(true);
+    try {
+      const response = await fetch("/api/debriefs/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roomId }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "We could not generate your debrief.");
+      setIsGenerating(false);
+      router.refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "We could not generate your debrief.");
+      setIsGenerating(false);
+    }
+  }
+
+  const generatedAt = debrief?.createdAt ? new Date(debrief.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+  const toneClass = (tone: CoachDebrief["patterns"][number]["tone"]) => tone === "positive"
+    ? "border-[#c4ff0d]/20 bg-[#c4ff0d]/[0.055]"
+    : tone === "watch"
+      ? "border-[#ffcf7f]/20 bg-[#ffcf7f]/[0.055]"
+      : "border-white/[0.09] bg-white/[0.03]";
+
+  return (
+    <section className="mx-auto max-w-[980px] rounded-2xl border border-[#c4ff0d]/20 bg-[linear-gradient(135deg,rgba(196,255,13,0.08),rgba(255,255,255,0.025)_38%,rgba(255,255,255,0.02))] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.15)] sm:p-7">
+      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+        <div>
+          <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#c4ff0d]"><Sparkles className="size-3.5" /> Paper-trading coach</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.06em]">{isComplete ? "Your final debrief." : "Your daily debrief."}</h1>
+          <p className="mt-2 max-w-[620px] text-sm leading-6 text-white/45">A private reflection built from your own simulated orders, holdings, and current room value. It is educational, not financial advice.</p>
+        </div>
+        <Button type="button" onClick={generateDebrief} disabled={isGenerating} className="h-10 shrink-0 rounded-xl bg-[#c4ff0d] px-4 text-xs font-semibold text-[#0a170d] hover:bg-[#d8ff62] disabled:opacity-60">
+          <Sparkles className="mr-2 size-3.5" />
+          {isGenerating ? "Reviewing trades…" : debrief ? "Refresh debrief" : "Generate debrief"}
+        </Button>
+      </div>
+
+      {!debrief ? <div className="mt-8 rounded-2xl border border-dashed border-[#c4ff0d]/25 bg-black/10 px-5 py-8"><p className="text-lg font-medium tracking-[-0.04em] text-white/85">Your coach is ready when you are.</p><p className="mt-2 max-w-[620px] text-sm leading-6 text-white/40">Generate a reflection from {tradeCount} {tradeCount === 1 ? "recorded order" : "recorded orders"}. You can refresh it later as your paper portfolio changes.</p></div> : <>
+        <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="rounded-2xl border border-white/[0.09] bg-black/10 p-5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-white/35"><span className="rounded-full border border-[#c4ff0d]/20 bg-[#c4ff0d]/10 px-2 py-1 font-semibold text-[#c4ff0d]">{debrief.source === "nvidia" ? "NVIDIA NIM coach" : "Coach preview"}</span>{debrief.source === "nvidia" && debrief.model ? <span className="max-w-full truncate normal-case tracking-normal text-white/45">{debrief.model}</span> : null}{generatedAt ? <span>Updated {generatedAt}</span> : null}</div>
+            <h2 className="mt-5 text-2xl font-semibold leading-tight tracking-[-0.055em] text-white/95">{debrief.headline}</h2>
+            <p className="mt-4 text-sm leading-6 text-white/50">{debrief.summary}</p>
+            <div className="mt-6 rounded-xl border border-[#c4ff0d]/16 bg-[#c4ff0d]/[0.055] p-4"><p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d]"><Lightbulb className="size-3.5" /> Lesson to carry forward</p><p className="mt-3 text-sm leading-6 text-white/75">{debrief.lesson}</p></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
+            <div className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Orders</p><p className="mt-2 text-2xl font-semibold tracking-[-0.05em] text-white/85">{debrief.metrics.tradeCount}</p><p className="mt-1 text-[10px] text-white/35">{debrief.metrics.buyCount} buys · {debrief.metrics.sellCount} sells</p></div>
+            <div className="rounded-xl border border-white/[0.09] bg-black/10 p-4"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Turnover</p><p className="mt-2 text-lg font-semibold tracking-[-0.04em] text-white/85">{formatUsd(debrief.metrics.turnoverUsd)}</p><p className="mt-1 text-[10px] text-white/35">across {debrief.metrics.assetsTraded} assets</p></div>
+            <div className="col-span-2 rounded-xl border border-white/[0.09] bg-black/10 p-4 lg:col-span-1"><p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/30">Portfolio value</p><p className="mt-2 text-lg font-semibold tracking-[-0.04em] text-white/85">{formatUsd(debrief.metrics.totalValue)}</p><p className={debrief.metrics.totalPnl >= 0 ? "mt-1 text-[10px] text-[#c4ff0d]" : "mt-1 text-[10px] text-[#ff9b9b]"}>{debrief.metrics.totalPnl >= 0 ? "+" : ""}{formatUsd(debrief.metrics.totalPnl)} all time</p></div>
+          </div>
+        </div>
+        {debrief.patterns.length > 0 ? <div className="mt-5 grid gap-3 md:grid-cols-3">{debrief.patterns.map((pattern, index) => <div key={pattern.title + index} className={"rounded-xl border p-4 " + toneClass(pattern.tone)}><p className={pattern.tone === "positive" ? "text-xs font-semibold text-[#c4ff0d]" : pattern.tone === "watch" ? "text-xs font-semibold text-[#ffcf7f]" : "text-xs font-semibold text-white/75"}>{pattern.title}</p><p className="mt-2 text-[11px] leading-5 text-white/45">{pattern.detail}</p></div>)}</div> : null}
+      </>}
+      {error ? <p role="alert" className="mt-4 rounded-lg border border-[#ff7f7f]/30 bg-[#ff7f7f]/10 px-3 py-2 text-xs text-[#ffb4b4]">{error}</p> : null}
+    </section>
+  );
 }
 
 type DashboardShellProps = {
+  debrief: CoachDebrief | null;
   durationMinutes: number;
   endsAt: string | null;
+  isComplete: boolean;
   isHost: boolean;
   leaderboard: LeaderboardEntry[];
   portfolio: PortfolioSummary;
+  portfolioTrades: TradeHistoryEntry[];
   roomHoldingStats: RoomHoldingStat[];
   roomId: string;
   roomName: string;
@@ -397,19 +639,19 @@ type DashboardShellProps = {
   };
 };
 
-export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, portfolio, roomHoldingStats, roomId, roomName, tradeHistory, user }: DashboardShellProps) {
+export function DashboardShell({ debrief, durationMinutes, endsAt, isComplete, isHost, leaderboard, portfolio, portfolioTrades, roomHoldingStats, roomId, roomName, tradeHistory, user }: DashboardShellProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isPublic, setIsPublic] = useState(false);
+  const [portfolioRange, setPortfolioRange] = useState<PortfolioRange>("1w");
   const [secondsLeft, setSecondsLeft] = useState(() => endsAt ? Math.max(0, Math.floor((Date.parse(endsAt) - Date.now()) / 1000)) : durationMinutes * 60);
   const [endChallengeError, setEndChallengeError] = useState("");
   const [isEndingChallenge, setIsEndingChallenge] = useState(false);
-  const portfolioHistory = [
-    { time: "Start", value: portfolio.startingCapital },
-    { time: "Now", value: portfolio.totalValue },
-  ];
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const pnlClass = portfolio.totalPnl >= 0 ? "text-[#c4ff0d]" : "text-[#ff7f7f]";
   const currentRank = leaderboard.find((entry) => entry.isCurrentUser);
+  const displayedTab = isComplete && activeTab === "Trade" ? "Dashboard" : activeTab;
+  const visibleTabs = isComplete ? tabs.filter((tab) => tab !== "Trade") : tabs;
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -436,10 +678,23 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
       const response = await fetch("/api/rooms/end", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ roomId }) });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "We could not end this challenge.");
-      window.location.assign("/rooms");
+      router.refresh();
     } catch (error) {
       setEndChallengeError(error instanceof Error ? error.message : "We could not end this challenge.");
       setIsEndingChallenge(false);
+    }
+  }
+
+  async function refreshDashboard() {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetch("/api/market", { cache: "no-store" });
+    } catch {
+      // A route refresh still updates room state that was already recorded.
+    } finally {
+      router.refresh();
+      window.setTimeout(() => setIsRefreshing(false), 650);
     }
   }
 
@@ -464,14 +719,14 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
           </div>
 
           <nav className="ml-auto flex items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.08] bg-white/[0.03] p-1 sm:gap-1.5" aria-label="Room navigation">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
-                aria-current={activeTab === tab ? "page" : undefined}
+                aria-current={displayedTab === tab ? "page" : undefined}
                 onClick={() => setActiveTab(tab)}
                 className={
-                  activeTab === tab
+                  displayedTab === tab
                     ? "whitespace-nowrap rounded-lg bg-[#c4ff0d] px-3 py-2 text-[11px] font-medium text-[#0a170d] shadow-[0_0_18px_rgba(196,255,13,0.16)] sm:px-3.5 sm:text-xs"
                     : "whitespace-nowrap rounded-lg px-3 py-2 text-[11px] font-medium text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white sm:px-3.5 sm:text-xs"
                 }
@@ -506,32 +761,28 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
             <span className="size-1.5 animate-pulse rounded-full bg-[#c4ff0d]" />
             Live feed
           </div>
-          <div className="flex min-w-max items-center gap-6 text-[11px]">
-            {ticker.map(([symbol, price, change]) => (
-              <div key={symbol} className="flex items-center gap-2 text-white/50">
-                <span className="font-semibold text-white/80">{symbol}</span>
-                <span>{price}</span>
-                <span className={change.startsWith("+") ? "text-[#c4ff0d]" : "text-[#ff7f7f]"}>{change}</span>
-              </div>
-            ))}
-          </div>
+          <LiveTickerFeed />
         </div>
       </div>
 
       <section className="relative z-10 mx-auto max-w-[1500px] px-5 pb-12 pt-7 sm:px-7 lg:px-10 lg:pt-9">
-        {activeTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : activeTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : activeTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : <>
+        {!isComplete && displayedTab === "Trade" ? <TradePanel portfolio={portfolio} roomId={roomId} /> : displayedTab === "Leaderboard" ? <LeaderboardPanel entries={leaderboard} /> : displayedTab === "History" ? <TradeHistoryPanel entries={tradeHistory} /> : displayedTab === "Feedback" ? <CoachDebriefPanel debrief={debrief} isComplete={isComplete} roomId={roomId} tradeCount={portfolioTrades.length} /> : <>
         <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
               <span className="size-1.5 rounded-full bg-[#c4ff0d]" />
-              {activeTab} / current room
+              {displayedTab} / current room
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">Good evening, {user.name.split(" ")[0]}.</h1>
-            <p className="mt-2 text-sm text-white/40">Your portfolio is valued from your cash balance and the latest recorded market prices.</p>
+            <h1 className="text-3xl font-semibold tracking-[-0.055em] text-white sm:text-4xl">{isComplete ? "Challenge complete, " + user.name.split(" ")[0] + "." : "Good evening, " + user.name.split(" ")[0] + "."}</h1>
+            <p className="mt-2 text-sm text-white/40">{isComplete ? "Trading is closed. Review the final room value, standings, and your private coach debrief." : "Your portfolio is valued from your cash balance and the latest recorded market prices."}</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-white/35">
             <Clock3 className="size-4 text-[#c4ff0d]/75" />
-            Last synced 12 seconds ago
+            <span>{portfolio.latestPriceAt ? "Market snapshot " + new Date(portfolio.latestPriceAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Market snapshot pending"}</span>
+            <Button type="button" onClick={refreshDashboard} disabled={isRefreshing} variant="outline" className="h-8 rounded-lg border-white/10 bg-white/[0.035] px-2.5 text-[10px] text-white/60 hover:border-[#c4ff0d]/30 hover:bg-[#c4ff0d]/10 hover:text-[#c4ff0d] disabled:opacity-60">
+              <RefreshCw className={isRefreshing ? "mr-1.5 size-3 animate-spin" : "mr-1.5 size-3"} />
+              {isRefreshing ? "Refreshing" : "Refresh"}
+            </Button>
           </div>
         </div>
 
@@ -555,38 +806,21 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
                 <p className="mt-1 text-[11px] text-white/30">{portfolio.latestPriceAt ? "Latest market valuation recorded " + new Date(portfolio.latestPriceAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Starting capital held in USD"}</p>
               </div>
               <div className="flex items-center gap-1 rounded-lg border border-white/[0.08] bg-black/10 p-1">
-                {["1H", "24H", "1W"].map((range) => (
+                {portfolioRanges.map((range) => (
                   <button
-                    key={range}
+                    key={range.value}
                     type="button"
-                    className={range === "1W" ? "rounded-md bg-white/[0.1] px-3 py-1.5 text-[10px] font-medium text-[#c4ff0d]" : "rounded-md px-3 py-1.5 text-[10px] font-medium text-white/35 hover:text-white"}
+                    aria-pressed={portfolioRange === range.value}
+                    onClick={() => setPortfolioRange(range.value)}
+                    className={portfolioRange === range.value ? "rounded-md bg-white/[0.1] px-3 py-1.5 text-[10px] font-medium text-[#c4ff0d]" : "rounded-md px-3 py-1.5 text-[10px] font-medium text-white/35 hover:text-white"}
                   >
-                    {range}
+                    {range.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="mt-8 h-[245px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={portfolioHistory} margin={{ top: 8, right: 4, left: -25, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#c4ff0d" stopOpacity={0.26} />
-                      <stop offset="100%" stopColor="#c4ff0d" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.07)" strokeDasharray="3 7" />
-                  <XAxis dataKey="time" tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.28)", fontSize: 10 }} dy={10} />
-                  <Tooltip
-                    cursor={{ stroke: "rgba(196,255,13,0.25)" }}
-                    contentStyle={{ background: "#0b1d13", border: "1px solid rgba(196,255,13,0.22)", borderRadius: 12, color: "#fff", fontSize: 11 }}
-                    formatter={(value) => ["$" + Number(value).toLocaleString(), "Value"]}
-                  />
-                  <Area type="monotone" dataKey="value" stroke="#c4ff0d" strokeWidth={2.5} fill="url(#portfolioGradient)" dot={false} activeDot={{ r: 4, fill: "#c4ff0d", stroke: "#07110c", strokeWidth: 2 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            <PortfolioHistoryChart portfolio={portfolio} range={portfolioRange} trades={portfolioTrades} />
           </motion.section>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
@@ -641,17 +875,17 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
               <div className="flex items-center gap-2 text-xs text-white/45"><BarChart3 className="size-4 text-[#c4ff0d]/75" /> Asset Allocation</div>
               <span className="text-[10px] text-white/25">Current</span>
             </div>
-            <div className="mt-5 flex items-center gap-5">
-              <div className="relative h-[155px] w-[155px] shrink-0">
+            <div className="mt-5 flex flex-col items-center gap-5 sm:flex-row sm:items-start">
+              <div className="relative h-[190px] w-[190px] shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={portfolio.allocations} dataKey="value" nameKey="name" innerRadius={51} outerRadius={72} paddingAngle={3} stroke="none">
+                    <Pie data={portfolio.allocations} dataKey="value" nameKey="name" innerRadius={64} outerRadius={89} paddingAngle={3} stroke="none">
                       {portfolio.allocations.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Pie>
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-lg font-semibold tracking-[-0.06em]">{formatUsd(portfolio.totalValue)}</span>
+                  <span className="whitespace-nowrap text-[15px] font-semibold tracking-[-0.06em] sm:text-base">{formatUsd(portfolio.totalValue)}</span>
                   <span className="text-[9px] uppercase tracking-[0.12em] text-white/30">total</span>
                 </div>
               </div>
@@ -678,8 +912,8 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
                 <p className={"mt-1 text-xs " + pnlClass}>{portfolio.totalPnl >= 0 ? "+" : ""}{formatUsd(portfolio.totalPnl)} <span className="text-white/30">all time</span></p>
               </div>
               <div className="rounded-xl border border-white/[0.08] bg-black/10 px-3 py-2.5 sm:text-right">
-                <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> Ends in</p>
-                <p className="mt-1 text-sm font-semibold text-[#c4ff0d]">{formatCountdown(secondsLeft)}</p>
+                <p className="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.14em] text-white/30 sm:justify-end"><Clock3 className="size-3" /> {isComplete ? "Status" : "Ends in"}</p>
+                <p className="mt-1 text-sm font-semibold text-[#c4ff0d]">{isComplete ? "Complete" : formatCountdown(secondsLeft)}</p>
               </div>
             </div>
 
@@ -729,22 +963,22 @@ export function DashboardShell({ durationMinutes, endsAt, isHost, leaderboard, p
                 </div>
               ))}
             </div>
-            {isHost ? <div className="mt-5 border-t border-white/[0.08] pt-4"><Button type="button" onClick={endChallenge} disabled={isEndingChallenge} variant="outline" className="h-9 w-full rounded-lg border-[#ff8c8c]/30 bg-transparent text-xs font-semibold text-[#ffaaaa] hover:bg-[#ff8c8c]/10 hover:text-[#ffc1c1] disabled:opacity-60">{isEndingChallenge ? "Ending challenge…" : "End challenge"}</Button><p className="mt-2 text-center text-[10px] text-white/30">Ends trading for everyone immediately.</p>{endChallengeError ? <p role="alert" className="mt-2 text-center text-[10px] text-[#ffb4b4]">{endChallengeError}</p> : null}</div> : null}
+            {isHost && !isComplete ? <div className="mt-5 border-t border-white/[0.08] pt-4"><Button type="button" onClick={endChallenge} disabled={isEndingChallenge} variant="outline" className="h-9 w-full rounded-lg border-[#ff8c8c]/30 bg-transparent text-xs font-semibold text-[#ffaaaa] hover:bg-[#ff8c8c]/10 hover:text-[#ffc1c1] disabled:opacity-60">{isEndingChallenge ? "Ending challenge…" : "End challenge"}</Button><p className="mt-2 text-center text-[10px] text-white/30">Ends trading for everyone immediately.</p>{endChallengeError ? <p role="alert" className="mt-2 text-center text-[10px] text-[#ffb4b4]">{endChallengeError}</p> : null}</div> : null}
           </section>
 
           <section className="rounded-2xl border border-[#c4ff0d]/15 bg-[#c4ff0d]/[0.045] p-5 sm:p-6">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs text-white/45"><Lightbulb className="size-4 text-[#c4ff0d]" /> Lesson of the day</div>
+              <div className="flex items-center gap-2 text-xs text-white/45"><Lightbulb className="size-4 text-[#c4ff0d]" /> {isComplete ? "Final coach debrief" : "Today's coach debrief"}</div>
               <Sparkles className="size-4 text-[#c4ff0d]/60" />
             </div>
             <p className="mt-6 max-w-[440px] text-xl font-medium leading-tight tracking-[-0.045em] text-white/90">
-              A good entry is only half the trade. Your exit needs a rule, too.
+              {debrief?.headline ?? "Your coach is ready to review the decisions behind your trades."}
             </p>
             <p className="mt-4 max-w-[460px] text-xs leading-5 text-white/40">
-              Your coach noticed you added to SOL after a 7.2% run-up. Tonight&apos;s debrief will unpack the difference between conviction and chasing.
+              {debrief?.summary ?? "Generate a private reflection based on your simulated orders, holdings, and current portfolio value."}
             </p>
-            <button type="button" className="mt-5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d] hover:text-white">
-              Preview debrief <ChevronRight className="size-3.5" />
+            <button type="button" onClick={() => setActiveTab("Feedback")} className="mt-5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#c4ff0d] hover:text-white">
+              {debrief ? "Open debrief" : "Generate debrief"} <ChevronRight className="size-3.5" />
             </button>
           </section>
         </div>
